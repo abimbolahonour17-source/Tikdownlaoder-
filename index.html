@@ -49,6 +49,15 @@
             </button>
             <div class="status-message" id="url-status" role="status" aria-live="polite"></div>
           </form>
+          <div class="authorized-upload">
+            <p class="upload-heading">Or download a video file you already have</p>
+            <label class="input-label" for="video-file">Choose video file</label>
+            <input id="video-file" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" />
+            <button type="button" class="download-button upload-button" id="upload-button"><span class="button-label">Upload and prepare download</span><span class="button-arrow" aria-hidden="true">↓</span></button>
+            <div class="status-message" id="upload-status" role="status" aria-live="polite"></div>
+            <a id="file-download-link" class="text-link upload-result" hidden download>Download your video <span>↓</span></a>
+            <p class="upload-help">Uploads are temporary and expire after one hour. Only upload videos you own or are authorized to use.</p>
+          </div>
           <div class="card-note"><span class="shield-icon">✦</span> Use links to content you own or have permission to save.</div>
         </div>
         <div class="hero-trust"><span>✧</span> Easy to use <span class="trust-divider">·</span> Works on mobile <span class="trust-divider">·</span> No account needed</div>
