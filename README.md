@@ -8,13 +8,13 @@ A responsive frontend plus FastAPI service with TikTok-link validation and tempo
 
 - `index.html`: page markup
 - `styles.css`: responsive dark-purple styling
-- `script.js`: clipboard paste, URL validation, temporary video upload/download integration, mobile navigation
+- `script.js`: clipboard paste, URL validation, temporary video upload/download, background job polling, progress UI, mobile navigation
 
 Open `index.html` directly to view the interface. For API-backed validation, run the backend and serve the frontend through a local web server (for example, `python3 -m http.server 5500`).
 
 ## Backend
 
-The API supports temporary uploads, FFmpeg conversion/compression, and downloads of user-authorized video files. TikTok URL-to-file retrieval is not enabled. See `backend/README.md` for details.
+The API supports temporary uploads, queued FFmpeg conversion/compression with live progress, file-size comparison, and downloads of user-authorized video files. TikTok URL-to-file retrieval is not enabled. See `backend/README.md` for details.
 
 FastAPI backend lives in `backend/`.
 
