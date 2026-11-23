@@ -28,6 +28,12 @@ document.querySelector("#year").textContent = new Date().getFullYear();
 const defaultApiBase = ["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://127.0.0.1:8000" : window.location.origin;
 const API_BASE = (window.TIKDOWNLOAD_API_BASE || defaultApiBase).replace(/\/$/, "");
 const MAX_UPLOAD_MB = 80;
+function resolveDownloadUrl(url) {
+  return new URL(url, API_BASE).href;
+}
+// Upload/conversion tools remain hidden until a Vercel-compatible worker is configured.
+const authorizedUploadSection = document.querySelector(".authorized-upload");
+if (authorizedUploadSection) authorizedUploadSection.hidden = true;
 
 function showStatus(message, kind = "") {
   status.textContent = message;
