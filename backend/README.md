@@ -5,16 +5,17 @@ FastAPI backend for TikDownload.
 ## Endpoints
 
 - `GET /health` — health/version
-- `POST /api/v1/validate` — validate an HTTPS TikTok URL
-- `POST /api/v1/download` — intentionally returns 501; TikTok retrieval is not integrated
-- `POST /api/v1/media/upload` — upload a video you own or have permission to use (MP4, WebM, MOV); stores temporarily and returns a download link
-- `GET /api/v1/media/{id}/download` — download the uploaded temporary file
+- `POST /api/v1/validate` — validate HTTPS TikTok URL format
+- `POST /api/v1/download` — returns 501; TikTok URL-to-file retrieval is not available
+- `POST /api/v1/media/upload` — upload authorized MP4, WebM, or MOV files
+- `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — convert to MP4 or compress with FFmpeg
+- `GET /api/v1/media/{id}/download` — download uploaded or processed temporary media
 
-Upload validates the MIME type, extension, file signature, and size. Temporary links default to one hour. Expired media is cleaned when another API request is received.
+Conversion uses H.264 video and AAC audio in an MP4 container. Compression uses CRF 28; conversion uses CRF 23. Resolution can be kept or scaled down to 1080p, 720p, or 480p. The processor uses FFmpeg with a 15-minute timeout. Temporary files expire after one hour by default.
 
 ## Run locally
 
-Python 3.10+ recommended.
+Python 3.10+ recommended. Install FFmpeg separately and make sure `ffmpeg` is on PATH.
 
 ```bash
 cd backend
@@ -29,27 +30,38 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 API docs: http://127.0.0.1:8000/docs
 
-## Upload example
+The Dockerfile installs FFmpeg for container deployments.
+
+## Upload and process example
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/media/upload -F "file=@my-video.mp4"
 ```
 
-The response includes a relative `download_url`, which can be opened using the API origin.
+Upload response contains a media `id`. Use that ID to process:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/media/MEDIA_ID/process?operation=compress&resolution=720"
+```
+
+The processing response includes a temporary download URL. Convert example: `operation=convert&resolution=keep`.
 
 ## Configuration
 
 - `CORS_ORIGINS`: allowed frontend origins
 - `RATE_WINDOW_SECONDS`: rate limit window (default 60)
 - `RATE_LIMIT_REQUESTS`: requests per client/window (default 30)
-- `MAX_UPLOAD_MB`: max upload size (default 80)
-- `MEDIA_TTL_SECONDS`: temporary link expiration (default 3600)
-- `MEDIA_DIR`: storage directory (default /tmp/tikdownload-media)
+- `MAX_UPLOAD_MB`: upload limit (default 80)
+- `MEDIA_TTL_SECONDS`: download expiry (default 3600)
+- `MEDIA_DIR`: storage folder (default /tmp/tikdownload-media)
 
-## Limitations and deployment notes
+## TikTok URL retrieval status
 
-- This upload/download pipeline stores and serves the user's authorized file; it does not transcode, compress, or download from TikTok.
-- TikTok URL retrieval remains disabled. Only use official platform options or a provider integration with appropriate authorization that does not circumvent access controls.
-- Temporary records and rate limiting are in-memory. For multi-instance production, use shared storage and a database/queue.
-- Expiration cleanup is request-triggered, not a scheduled background task.
-- Tests were added but have not yet been run in this environment.
+This backend intentionally does not scrape or fetch video bytes from TikTok URLs. TikTok's official developer APIs offer public-video metadata/display and creator upload/posting flows, but do not provide a general-purpose endpoint for downloading arbitrary TikTok video URLs. A retrieval feature would require a lawful, authorized source/API that provides media files and must not bypass privacy or access controls. The current URL field only validates a TikTok link.
+
+## Deployment limitations
+
+- Upload and FFmpeg processing are synchronous request operations; large videos may need a background queue.
+- Media records and rate limiting are in-memory, and the default container filesystem may be ephemeral. Production should use shared object storage, persistent job records, and a queue.
+- Expiry cleanup is request-triggered rather than a scheduler.
+- Tests have been added but not run in this environment.
