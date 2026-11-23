@@ -6,14 +6,14 @@ FastAPI backend for TikDownload.
 
 - `GET /health` — health/version
 - `POST /api/v1/validate` — validate HTTPS TikTok URL format
-- `POST /api/v1/download` — returns 501; TikTok URL-to-file retrieval is not available
+- `POST /api/v1/download` — retrieves a TikTok URL through a configured authorized provider adapter (provider configuration required; otherwise returns 501)
 - `POST /api/v1/media/upload` — upload authorized MP4, WebM, or MOV files
 - `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — convert to MP4 or compress with FFmpeg
-- `GET /api/v1/media/{id}/download` — download uploaded or processed temporary media
+- `GET /api/v1/media/{id}/download` — download retrieved, uploaded, or processed temporary media
 
 Conversion uses H.264 video and AAC audio in an MP4 container. Compression uses CRF 28; conversion uses CRF 23. Resolution can be kept or scaled down to 1080p, 720p, or 480p. Processing runs in a background thread and reports progress from FFmpeg's progress output when source duration is available. Jobs return `queued`, `running`, `completed`, or `failed` status. A hard timeout during the live-output read still needs to be added and tested. Temporary files expire after one hour by default.
 
-## Run locally
+## Docker Compose (API + Redis + queue worker)\n\nFrom the `backend` directory, start the API, Redis, and durable RQ worker:\n\n```bash\ndocker compose up --build -d\n```\n\nAPI: `http://localhost:8000`\nSwagger: `http://localhost:8000/docs`\n\nMedia and SQLite database are stored in the named `tikdownload-data` volume; Redis queue persistence is enabled through append-only mode. The worker shares the media/database volume. Set `CORS_ORIGINS` and provider credentials before deploying publicly.\n\n## Run locally
 
 Python 3.10+ recommended. Install FFmpeg separately and make sure `ffmpeg` is on PATH.
 
@@ -44,7 +44,7 @@ Upload response contains a media `id`. Use that ID to process:
 curl -X POST "http://127.0.0.1:8000/api/v1/media/MEDIA_ID/process?operation=compress&resolution=720"
 ```
 
-The processing response includes a temporary download URL. Convert example: `operation=convert&resolution=keep`.
+The API returns a job ID. Poll `GET /api/v1/jobs/{job_id}` for progress and a temporary `download_url` when completed. Convert example: `operation=convert&resolution=keep`.
 
 ## Configuration
 
@@ -53,7 +53,7 @@ The processing response includes a temporary download URL. Convert example: `ope
 - `RATE_LIMIT_REQUESTS`: requests per client/window (default 30)
 - `MAX_UPLOAD_MB`: upload limit (default 80)
 - `MEDIA_TTL_SECONDS`: download expiry (default 3600)
-- `MEDIA_DIR`: storage folder (default /tmp/tikdownload-media)
+- `MEDIA_DIR`: storage folder (default /tmp/tikdownload-media)\n- `TIKDOWNLOAD_DB_PATH`: SQLite metadata database (default /tmp/tikdownload.sqlite3)\n- `REDIS_URL`: when set, processing is enqueued to RQ; local thread fallback is used when unset\n- `TIKTOK_RETRIEVAL_API_URL` / `TIKTOK_RETRIEVAL_API_TOKEN`: authorized retrieval provider endpoint and token
 
 ## TikTok URL retrieval status
 
