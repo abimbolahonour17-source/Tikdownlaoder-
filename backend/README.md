@@ -67,7 +67,7 @@ S3_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
 DATABASE_URL=<managed-postgresql-connection-string>
 ```
 
-The local Compose API and worker use these same variables; MinIO is started for local development. For production with managed PostgreSQL and Cloudflare R2, use the separate `docker-compose.cloud.yml` stack instead. It does not start local PostgreSQL or MinIO and requires the cloud connection/credentials in `.env`:
+The default `docker-compose.yml` stack uses local MinIO and PostgreSQL. For production with managed PostgreSQL and Cloudflare R2, configure the cloud variables in `.env` and use the separate `docker-compose.cloud.yml` stack. It does not start local PostgreSQL or MinIO and requires the cloud connection/credentials:
 
 ```bash
 docker compose -f docker-compose.cloud.yml up --build -d
