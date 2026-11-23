@@ -1,14 +1,14 @@
 # TikDownload
 
-A responsive frontend prototype plus a small FastAPI service for validating TikTok URLs.
+A responsive frontend plus FastAPI service with TikTok-link validation and temporary authorized video-file upload/download.
 
-> **Download status:** This repository includes URL validation and a download endpoint placeholder. It does not retrieve video files. Use TikTok's built-in save feature or an authorized source. Only save content you own or have permission to download.
+**TikTok-link retrieval is not enabled.** Users can currently upload video files they own or are authorized to use, then receive a temporary download link.
 
 ## Frontend
 
 - `index.html`: page markup
 - `styles.css`: responsive dark-purple styling
-- `script.js`: clipboard paste, client-side URL checks, API validation call, mobile navigation
+- `script.js`: clipboard paste, URL validation, temporary video upload/download integration, mobile navigation
 
 Open `index.html` directly to view the interface. For API-backed validation, run the backend and serve the frontend through a local web server (for example, `python3 -m http.server 5500`).
 
@@ -22,7 +22,9 @@ FastAPI backend lives in `backend/`.
 
 - `GET /health` — health and version check
 - `POST /api/v1/validate` — validate an HTTPS TikTok link
-- `POST /api/v1/download` — returns `501 DOWNLOAD_PROVIDER_NOT_CONFIGURED` for supported URLs because download retrieval is not implemented
+- `POST /api/v1/download` — 501 placeholder for TikTok retrieval
+- `POST /api/v1/media/upload` — uploads authorized MP4/WebM/MOV files and returns a temporary download link
+- `GET /api/v1/media/{id}/download` — serves temporary uploaded media
 
 Interactive API docs are available at `/docs` when the API is running.
 
@@ -48,6 +50,8 @@ Optional environment variables:
 - `CORS_ORIGINS`: comma-separated allowed origins. Defaults to common local frontend ports.
 - `RATE_WINDOW_SECONDS`: rate-limit window (default 60 seconds).
 - `RATE_LIMIT_REQUESTS`: requests per client per window (default 30).
+- `MAX_UPLOAD_MB`: maximum uploaded video size (default 80 MB).
+- `MEDIA_TTL_SECONDS`: temporary download-link lifetime (default 3600 seconds).
 
 Frontend API base is same-origin by default. To use a separate API host, define `window.TIKDOWNLOAD_API_BASE` before loading `script.js` in `index.html`.
 
