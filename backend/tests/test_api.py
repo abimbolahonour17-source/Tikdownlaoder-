@@ -44,27 +44,47 @@ def test_upload_rejects_non_video_mime():
     assert response.status_code == 415
 
 def test_ffmpeg_processing_endpoint(monkeypatch, tmp_path):
+    import time
     import subprocess
     from pathlib import Path
     import app.main as main
     monkeypatch.setattr(main, "MEDIA_DIR", tmp_path)
-    monkeypatch.setattr(main.shutil, "which", lambda _name: "/usr/bin/ffmpeg")
-    def fake_run(command, **kwargs):
-        Path(command[-1]).write_bytes(b"processed-mp4")
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-    monkeypatch.setattr(main.subprocess, "run", fake_run)
+    monkeypatch.setattr(main.shutil, "which", lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None)
+    class FakeProcess:
+        def __init__(self, command, **kwargs):
+            Path(command[-1]).write_bytes(b"processed-mp4")
+            self.stdout = iter(["out_time_ms=5000000\\n", "progress=end\\n"])
+        def wait(self, timeout=None):
+            return 0
+    monkeypatch.setattr(main.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(main.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="5.0\\n", stderr=""))
     source = b"0000ftypisom" + b"source-video"
     upload = client.post("/api/v1/media/upload", files={"file": ("clip.mp4", BytesIO(source), "video/mp4")})
     assert upload.status_code == 200
     media_id = upload.json()["id"]
-    processed = client.post(f"/api/v1/media/{media_id}/process?operation=compress&resolution=720")
-    assert processed.status_code == 200
-    result = processed.json()
-    assert result["operation"] == "compress"
-    assert result["resolution"] == "720"
-    downloaded = client.get(result["download_url"])
+    queued = client.post(f"/api/v1/media/{media_id}/process?operation=compress&resolution=720")
+    assert queued.status_code == 202
+    job_id = queued.json()["job_id"]
+    deadline = time.time() + 2
+    status = {}
+    while time.time() < deadline:
+        status_response = client.get(f"/api/v1/jobs/{job_id}")
+        assert status_response.status_code == 200
+        status = status_response.json()
+        if status["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.01)
+    assert status["status"] == "completed"
+    assert status["progress"] == 100
+    assert status["operation"] == "compress"
+    assert status["resolution"] == "720"
+    downloaded = client.get(status["download_url"])
     assert downloaded.status_code == 200
     assert downloaded.content == b"processed-mp4"
+
+def test_processing_job_not_found():
+    response = client.get("/api/v1/jobs/no-such-job")
+    assert response.status_code == 404
 
 def test_processing_requires_ffmpeg(monkeypatch):
     import app.main as main
