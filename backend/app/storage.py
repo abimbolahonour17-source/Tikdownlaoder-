@@ -64,3 +64,19 @@ def temporary_path(suffix=".mp4"):
     os.close(fd)
     Path(name).unlink(missing_ok=True)
     return Path(name)
+
+
+def presigned_download_url(stored_path, filename, expires_seconds=3600):
+    """Return a short-lived direct download URL for S3-compatible storage."""
+    if not S3_ENABLED or not stored_path.startswith("s3://"):
+        return None
+    parsed = urlparse(stored_path)
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": parsed.netloc,
+            "Key": parsed.path.lstrip("/"),
+            "ResponseContentDisposition": f'attachment; filename="{Path(filename).name}"',
+        },
+        ExpiresIn=max(60, min(int(expires_seconds), 3600)),
+    )
