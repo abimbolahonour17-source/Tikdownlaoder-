@@ -19,3 +19,4 @@
 .upload-help{font-size:11px;line-height:1.5;opacity:.65;margin:12px 0 0}
 .upload-result{display:inline-flex;margin-top:10px;align-items:center;gap:8px}
 .upload-result[hidden]{display:none}
+.processing-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}.processing-options .input-label{margin:4px 0 0}.processing-options select{width:100%;background:#10111a;color:#f5f5fb;border:1px solid rgba(255,255,255,.14);border-radius:9px;padding:11px 10px;font:inherit;font-size:12px}.process-button{grid-column:1/-1}.process-button:disabled{opacity:.45;cursor:not-allowed}@media(max-width:650px){.processing-options{grid-template-columns:1fr}.process-button{grid-column:auto}}
