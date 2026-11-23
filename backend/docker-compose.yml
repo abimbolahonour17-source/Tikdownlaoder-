@@ -50,7 +50,7 @@ services:
       dockerfile: Dockerfile
     environment:
       REDIS_URL: redis://redis:6379/0
-      DATABASE_URL: postgresql://tikdownload:${POSTGRES_PASSWORD:-local-development-password}@postgres:5432/tikdownload
+      DATABASE_URL: ${DATABASE_URL:-postgresql://tikdownload:${POSTGRES_PASSWORD:-local-development-password}@postgres:5432/tikdownload}
       MEDIA_DIR: /data/media
       S3_BUCKET: tikdownload-media
       S3_ENDPOINT_URL: http://minio:9000
