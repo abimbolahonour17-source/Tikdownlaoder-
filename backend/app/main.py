@@ -223,52 +223,57 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
     job["status"] = "running"
     job["message"] = "FFmpeg is processing your video."
     persistence.update_job(job_id, status="running", message=job["message"])
-    duration = _probe_duration(source["path"])
+    source_local = storage.temporary_path(Path(source["filename"]).suffix or ".mp4")
+    storage.localize(source["path"], source_local)
+    command = [str(source_local) if item == source["path"] else item for item in command]
+    duration = _probe_duration(str(source_local))
+    process = None
+    timeout_timer = None
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         timeout_timer = threading.Timer(900, lambda: getattr(process, "kill", lambda: None)())
         timeout_timer.daemon = True
         timeout_timer.start()
-        last_time = 0.0
         for line in process.stdout or []:
             line = line.strip()
-            if line.startswith("out_time_ms="):
+            if line.startswith("out_time_ms=") and duration and duration > 0:
                 try:
-                    last_time = int(line.split("=", 1)[1]) / 1_000_000
-                    if duration and duration > 0:
-                        job["progress"] = min(99, max(1, int(last_time / duration * 100)))
-                        persistence.update_job(job_id, progress=job['progress'])
+                    job["progress"] = min(99, max(1, int(int(line.split("=", 1)[1]) / 1_000_000 / duration * 100)))
+                    persistence.update_job(job_id, progress=job["progress"])
                 except (ValueError, IndexError):
                     pass
             elif line == "progress=end":
                 job["progress"] = 99
                 persistence.update_job(job_id, progress=99)
         return_code = process.wait(timeout=900)
-        timeout_timer.cancel()
+        if timeout_timer:
+            timeout_timer.cancel()
         if return_code != 0 or not output_path.exists() or output_path.stat().st_size == 0:
-            output_path.unlink(missing_ok=True)
             job.update(status="failed", progress=0, message="Video processing failed. Try another video or preset.")
             persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
             return
-        expires = time.time() + MEDIA_TTL_SECONDS
         output_size = output_path.stat().st_size
-        stored_output = storage.store_file(output_path, f"media/{output_id}.mp4")\n        record = {"id": output_id, "path": stored_output, "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
+        stored_output = storage.store_file(output_path, f"media/{output_id}.mp4")
+        expires = time.time() + MEDIA_TTL_SECONDS
+        record = {"id": output_id, "path": stored_output, "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
         media_records[output_id] = record
         persistence.save_media(output_id, record)
-        job.update(status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=media_records[output_id]["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, operation=operation, resolution=resolution, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
-        persistence.update_job(job_id, status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=media_records[output_id]["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
+        job.update(status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=record["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, operation=operation, resolution=resolution, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
+        persistence.update_job(job_id, status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=record["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
     except subprocess.TimeoutExpired:
-        try:
-            process.kill()
-        except Exception:
-            pass
-        output_path.unlink(missing_ok=True)
+        if process:
+            try: process.kill()
+            except Exception: pass
         job.update(status="failed", progress=0, message="Video processing took too long.")
         persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
     except Exception:
-        output_path.unlink(missing_ok=True)
         job.update(status="failed", progress=0, message="Video processing failed unexpectedly.")
         persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
+    finally:
+        if timeout_timer:
+            timeout_timer.cancel()
+        source_local.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
 
 @app.post("/api/v1/media/{media_id}/process", status_code=202)
 def process_uploaded_video(media_id: str, operation: str = "convert", resolution: str = "keep"):
