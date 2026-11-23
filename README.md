@@ -1,8 +1,6 @@
 # TikDownload
 
-A responsive frontend plus FastAPI service with TikTok-link validation and temporary authorized video-file upload/download.
-
-**TikTok-link retrieval is not enabled.** Users can currently upload video files they own or are authorized to use, then receive a temporary download link.
+A responsive frontend plus FastAPI backend for video retrieval (through a configured authorized provider), uploads, FFmpeg conversion/compression, queued jobs, and temporary downloads.
 
 ## Frontend
 
@@ -14,7 +12,7 @@ Open `index.html` directly to view the interface. For API-backed validation, run
 
 ## Backend
 
-The API supports temporary uploads, queued FFmpeg conversion/compression with live progress, file-size comparison, and downloads of user-authorized video files. TikTok URL-to-file retrieval is not enabled. See `backend/README.md` for details.
+The API supports provider-based TikTok URL retrieval, temporary uploads, FFmpeg conversion/compression, background jobs, live progress, and file-size comparison. Retrieval is not turnkey: configure an authorized provider adapter as documented. See `backend/README.md` for details.
 
 FastAPI backend lives in `backend/`.
 
@@ -22,14 +20,15 @@ FastAPI backend lives in `backend/`.
 
 - `GET /health` — health and version check
 - `POST /api/v1/validate` — validate an HTTPS TikTok link
-- `POST /api/v1/download` — 501 placeholder for TikTok retrieval
+- `POST /api/v1/download` — retrieves video via configured authorized provider; otherwise 501
 - `POST /api/v1/media/upload` — uploads authorized MP4/WebM/MOV files
-- `POST /api/v1/media/{id}/process` — FFmpeg MP4 conversion or compression with optional 1080p/720p/480p output scaling
-- `GET /api/v1/media/{id}/download` — serves original or processed temporary media
+- `POST /api/v1/media/{id}/process` — queues FFmpeg conversion/compression (Redis/RQ in Compose; thread fallback locally)
+- `GET /api/v1/jobs/{job_id}` — persistent job status/progress
+- `GET /api/v1/media/{id}/download` — serves retrieved, original, or processed temporary media
 
 Interactive API docs are available at `/docs` when the API is running.
 
-### Run API locally
+### Docker deployment (API + Redis + worker)\n\nFrom the backend folder:\n\n```bash\ncd backend\ndocker compose up --build -d\n```\n\nThe API runs on `http://localhost:8000`. Redis and the RQ worker run separately. The named `tikdownload-data` volume stores the media files and SQLite metadata; Redis uses append-only persistence for the queue. Configure provider credentials and `CORS_ORIGINS` before deploying to a public server.\n\n### Run API locally
 
 Python 3.10+ recommended.
 
@@ -52,7 +51,7 @@ Optional environment variables:
 - `RATE_WINDOW_SECONDS`: rate-limit window (default 60 seconds).
 - `RATE_LIMIT_REQUESTS`: requests per client per window (default 30).
 - `MAX_UPLOAD_MB`: maximum uploaded video size (default 80 MB).
-- `MEDIA_TTL_SECONDS`: temporary download-link lifetime (default 3600 seconds).
+- `MEDIA_TTL_SECONDS`: temporary download-link lifetime (default 3600 seconds).\n- `TIKDOWNLOAD_DB_PATH`: SQLite metadata path.\n- `REDIS_URL`: enables RQ queue; unset uses a process-local thread for development.\n- `TIKTOK_RETRIEVAL_API_URL` and `TIKTOK_RETRIEVAL_API_TOKEN`: configured retrieval provider.
 
 Frontend API base is same-origin by default. To use a separate API host, define `window.TIKDOWNLOAD_API_BASE` before loading `script.js` in `index.html`.
 
