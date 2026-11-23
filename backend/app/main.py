@@ -145,6 +145,9 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
     duration = _probe_duration(source["path"])
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        timeout_timer = threading.Timer(900, process.kill)
+        timeout_timer.daemon = True
+        timeout_timer.start()
         last_time = 0.0
         for line in process.stdout or []:
             line = line.strip()
@@ -157,7 +160,8 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
                     pass
             elif line == "progress=end":
                 job["progress"] = 99
-        return_code = process.wait(timeout=900)
+        return_code = process.wait()
+        timeout_timer.cancel()
         if return_code != 0 or not output_path.exists() or output_path.stat().st_size == 0:
             output_path.unlink(missing_ok=True)
             job.update(status="failed", progress=0, message="Video processing failed. Try another video or preset.")
