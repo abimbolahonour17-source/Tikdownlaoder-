@@ -1,104 +1,101 @@
 # TikDownload API
 
-FastAPI backend for TikDownload. It supports temporary video storage, FFmpeg conversion/compression, persistent job/media metadata, and provider-based TikTok URL retrieval.
+FastAPI backend with GetInSaver-based TikTok URL retrieval, PostgreSQL metadata, S3-compatible object storage, Redis/RQ video-processing queue, and FFmpeg conversion/compression.
 
-## Endpoints
+## Quick start (Docker)
 
-- `GET /health` — health/version
-- `POST /api/v1/validate` — validate HTTPS TikTok URL format
-- `POST /api/v1/download` — retrieve through the configured authorized provider; returns 501 until configured
-- `POST /api/v1/media/upload` — upload authorized MP4, WebM, or MOV files
-- `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — queue conversion/compression
-- `GET /api/v1/jobs/{job_id}` — status, progress, and output metadata
-- `GET /api/v1/media/{id}/download` — download retrieved, uploaded, or processed media
-
-## Docker Compose deployment
-
-From this directory:
+1. Copy `.env.example` to `.env` in this folder.
+2. Set `GETINSAVER_API_KEY` to your GetInSaver API key. GetInSaver is an independent provider; its API usage may consume credits. Confirm provider terms, supported content, and rights before using it.
+3. Change the default PostgreSQL and MinIO passwords in `.env` before using anything beyond local development.
+4. Start services:
 
 ```bash
 docker compose up --build -d
 ```
 
 Services:
-- **API:** `http://localhost:8000`
-- **Redis:** persistent queue backing
-- **RQ worker:** FFmpeg processing service
+- **API:** http://localhost:8000
+- **PostgreSQL:** internal port 5432; durable jobs/media metadata
+- **Redis:** queue backing
+- **RQ worker:** FFmpeg jobs
+- **MinIO:** local S3-compatible storage at http://localhost:9000; console at http://localhost:9001
+- **MinIO initializer:** creates the `tikdownload-media` bucket
 
-The named `tikdownload-data` volume stores uploaded/processed media and the SQLite metadata database. Redis uses append-only persistence. Both the API and worker share the media/database volume.
+The stack uses named volumes for PostgreSQL, Redis, and MinIO. API and worker share object storage, not container-local media files. MinIO is for local development; for production, use managed object storage such as Cloudflare R2 or AWS S3 and supply the S3-compatible credentials/endpoint.
 
-Before public deployment, set a production frontend origin for `CORS_ORIGINS`, secure secrets, TLS/reverse proxy, and suitable upload limits.
+## TikTok URL retrieval
 
-## Run locally without Redis
+The URL download endpoint uses GetInSaver's resolver:
 
-Python 3.10+ recommended. Install FFmpeg separately and ensure it is on PATH.
+```http
+POST https://developers.getinsaver.com/v1/resolve
+Authorization: Bearer <GETINSAVER_API_KEY>
+Content-Type: application/json
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+{"service":"tiktok","url":"<validated TikTok URL>","max_results":1}
 ```
 
-Without `REDIS_URL`, processing uses a local development thread. With Redis configured, jobs are enqueued to RQ and the separate worker processes them.
+TikDownload selects the first `video` item, downloads it from the provider's HTTPS media URL, and stores it in object storage. Photo/carousel items are not presented as video downloads. The provider is independent and not an official TikTok API. Its credits, service terms, availability, and supported links are controlled by the provider.
 
-API docs: `http://127.0.0.1:8000/docs`
+Configure the key using `GETINSAVER_API_KEY`. The API endpoint returns a configuration error until this key is set. The backend validates HTTPS and public DNS for the returned media URL, refuses redirects, checks the content type, and enforces `MAX_UPLOAD_MB`.
+
+Provider docs: https://developers.getinsaver.com/tiktok-downloader-api
+
+## PostgreSQL and object storage
+
+`backend/app/persistence.py` uses PostgreSQL when `DATABASE_URL` is set; SQLite remains the local test/fallback database. PostgreSQL stores media metadata and processing-job status.
+
+`backend/app/storage.py` uses local filesystem storage when S3 settings are absent, or S3-compatible storage when all settings are configured:
+- `S3_BUCKET`
+- `S3_ENDPOINT_URL`
+- `S3_REGION`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+
+This adapter works with MinIO locally and can be configured for Cloudflare R2 or AWS S3. Media objects are stored under `media/` keys. Download responses temporarily localize an object before serving it, and workers localize source files before FFmpeg processing and upload completed output back to storage.
+
+**Important:** existing SQLite records/media are not automatically migrated to PostgreSQL/object storage. Back up and migrate any data you need before switching production settings.
+
+## API endpoints
+
+- `GET /health` — API, database, and queue status
+- `POST /api/v1/validate` — validate TikTok HTTPS URL format
+- `POST /api/v1/download` — retrieve a video using GetInSaver and store it temporarily
+- `POST /api/v1/media/upload` — upload an authorized MP4, WebM, or MOV
+- `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — queue FFmpeg processing
+- `GET /api/v1/jobs/{job_id}` — status, progress, and output metadata
+- `GET /api/v1/media/{id}/download` — temporary download for retrieved/uploaded/processed media
 
 ## Video processing
 
-Conversion uses H.264/AAC MP4; compression uses CRF 28 (conversion uses CRF 23). Resolution presets preserve aspect ratio and allow keep, 1080p, 720p, or 480p. Progress is persisted while FFmpeg runs. Temporary output links expire after one hour by default.
+- Conversion: H.264/AAC MP4, CRF 23
+- Compression: H.264/AAC MP4, CRF 28
+- Resolution: keep, 1080p, 720p, or 480p while preserving aspect ratio
+- RQ progress is persisted in PostgreSQL
+- Temporary links default to one hour (`MEDIA_TTL_SECONDS`)
 
 Example upload:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/media/upload -F "file=@my-video.mp4"
+curl -X POST http://localhost:8000/api/v1/media/upload -F "file=@my-video.mp4"
 ```
 
-Queue a compression job (replace `MEDIA_ID`):
+Queue compression:
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/media/MEDIA_ID/process?operation=compress&resolution=720"
+curl -X POST "http://localhost:8000/api/v1/media/MEDIA_ID/process?operation=compress&resolution=720"
 ```
 
-Poll status using the returned `job_id`:
+## Production configuration
+
+For production, use managed PostgreSQL and managed object storage; set strong secrets; configure TLS/reverse proxy and correct frontend `CORS_ORIGINS`; use a shared rate limiter; monitor provider credits, request errors, storage costs, and worker capacity; and configure a scheduled cleanup task for expired objects. The current rate limiter is process-local and expiry cleanup is triggered by API activity, so production scaling still requires follow-up hardening.
+
+## Local tests
 
 ```bash
-curl http://127.0.0.1:8000/api/v1/jobs/JOB_ID
+cd backend
+pip install -r requirements.txt
+pytest
 ```
 
-When completed, the job response includes a `download_url`, `size_bytes`, `original_size_bytes`, and `size_change_bytes`.
-
-## TikTok URL retrieval provider
-
-TikDownload has a provider adapter, but no retrieval provider is bundled or configured by default. Set:
-
-- `TIKTOK_RETRIEVAL_API_URL` — provider API endpoint
-- `TIKTOK_RETRIEVAL_API_TOKEN` — bearer token
-
-TikDownload POSTs JSON `{"url":"<validated TikTok URL>"}` to the provider endpoint. Provider response format:
-
-```json
-{
-  "download_url": "https://public-provider-cdn.example/video.mp4",
-  "filename": "video.mp4"
-}
-```
-
-The media URL must be HTTPS, resolve to public IP addresses, and return a video content type. Redirects are not followed, and retrieval size is limited by `MAX_UPLOAD_MB`. The provider endpoint must be chosen/configured by the operator and must be used only for content the requester is authorized to retrieve. This adapter does not scrape TikTok or bypass access controls.
-
-## Environment configuration
-
-- `CORS_ORIGINS` — allowed browser origins
-- `RATE_WINDOW_SECONDS` — limiter window (default 60)
-- `RATE_LIMIT_REQUESTS` — requests per client/window (default 30)
-- `MAX_UPLOAD_MB` — upload/retrieval size limit (default 80)
-- `MEDIA_TTL_SECONDS` — temporary link expiry (default 3600)
-- `MEDIA_DIR` — media file storage directory
-- `TIKDOWNLOAD_DB_PATH` — SQLite metadata file
-- `REDIS_URL` — enable Redis/RQ queue (unset for local thread fallback)
-- `TIKTOK_RETRIEVAL_API_URL` and `TIKTOK_RETRIEVAL_API_TOKEN` — provider adapter settings
-
-## Production limitations
-
-SQLite and local shared volume are suitable for a single-host deployment. Multi-host API/worker scaling should move metadata to PostgreSQL and media to object storage. Rate limiting remains process-local. Expiry cleanup is request-triggered and should be scheduled in production. FFmpeg is mocked in the unit test; validate actual FFmpeg behavior in Docker before opening the service publicly.
+FFmpeg is mocked in the unit tests. Test the Docker stack and real FFmpeg processing before public production launch.
