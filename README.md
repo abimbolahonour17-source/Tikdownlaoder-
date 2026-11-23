@@ -28,7 +28,18 @@ FastAPI backend lives in `backend/`.
 
 Interactive API docs are available at `/docs` when the API is running.
 
-### Docker deployment (API + Redis + worker)\n\nFrom the backend folder:\n\n```bash\ncd backend\ndocker compose up --build -d\n```\n\nThe API runs on `http://localhost:8000`. Redis and the RQ worker run separately. The named `tikdownload-data` volume stores the media files and SQLite metadata; Redis uses append-only persistence for the queue. Configure provider credentials and `CORS_ORIGINS` before deploying to a public server.\n\n### Run API locally
+### Docker deployment (API + Redis + worker)
+
+From the backend folder:
+
+```bash
+cd backend
+docker compose up --build -d
+```
+
+The API runs on `http://localhost:8000`. Redis and the RQ worker run separately. The named `tikdownload-data` volume stores the media files and SQLite metadata; Redis uses append-only persistence for the queue. Configure provider credentials and `CORS_ORIGINS` before deploying to a public server.
+
+### Run API locally
 
 Python 3.10+ recommended.
 
@@ -51,7 +62,10 @@ Optional environment variables:
 - `RATE_WINDOW_SECONDS`: rate-limit window (default 60 seconds).
 - `RATE_LIMIT_REQUESTS`: requests per client per window (default 30).
 - `MAX_UPLOAD_MB`: maximum uploaded video size (default 80 MB).
-- `MEDIA_TTL_SECONDS`: temporary download-link lifetime (default 3600 seconds).\n- `TIKDOWNLOAD_DB_PATH`: SQLite metadata path.\n- `REDIS_URL`: enables RQ queue; unset uses a process-local thread for development.\n- `TIKTOK_RETRIEVAL_API_URL` and `TIKTOK_RETRIEVAL_API_TOKEN`: configured retrieval provider.
+- `MEDIA_TTL_SECONDS`: temporary download-link lifetime (default 3600 seconds).
+- `TIKDOWNLOAD_DB_PATH`: SQLite metadata path.
+- `REDIS_URL`: enables RQ queue; unset uses a process-local thread for development.
+- `TIKTOK_RETRIEVAL_API_URL` and `TIKTOK_RETRIEVAL_API_TOKEN`: configured retrieval provider.
 
 Frontend API base is same-origin by default. To use a separate API host, define `window.TIKDOWNLOAD_API_BASE` before loading `script.js` in `index.html`.
 
