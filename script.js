@@ -23,7 +23,8 @@ if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) {
   const uploadPanel = document.querySelector(".authorized-upload");
   if (uploadPanel) uploadPanel.style.display = "none";
 }
-\ndocument.querySelector("#year").textContent = new Date().getFullYear();
+
+document.querySelector("#year").textContent = new Date().getFullYear();
 const defaultApiBase = ["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://127.0.0.1:8000" : window.location.origin;
 const API_BASE = (window.TIKDOWNLOAD_API_BASE || defaultApiBase).replace(/\/$/, "");
 const MAX_UPLOAD_MB = 80;
@@ -198,7 +199,7 @@ processButton.addEventListener("click", async () => {
     const queued = await response.json();
     if (!response.ok) throw new Error(typeof queued.detail === "string" ? queued.detail : "Could not start processing");
     const result = await pollProcessingJob(queued.job_id);
-    fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    fileDownloadLink.href = downloadHref(result.download_url);
     const original = formatBytes(result.original_size_bytes);
     const processed = formatBytes(result.size_bytes);
     const change = result.size_change_bytes;
