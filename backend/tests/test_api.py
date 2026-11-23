@@ -78,6 +78,8 @@ def test_ffmpeg_processing_endpoint(monkeypatch, tmp_path):
     assert status["progress"] == 100
     assert status["operation"] == "compress"
     assert status["resolution"] == "720"
+    assert status["original_size_bytes"] == len(source)
+    assert client.get(f"/api/v1/jobs/{job_id}").json()["status"] == "completed"
     downloaded = client.get(status["download_url"])
     assert downloaded.status_code == 200
     assert downloaded.content == b"processed-mp4"
