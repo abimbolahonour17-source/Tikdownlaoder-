@@ -14,6 +14,8 @@ Open `index.html` directly to view the interface. For API-backed validation, run
 
 ## Backend
 
+The API supports temporary upload and download of video files users own or are authorized to use. See `backend/README.md` for endpoint details. TikTok URL retrieval itself is not enabled.
+
 FastAPI backend lives in `backend/`.
 
 ### Endpoints
