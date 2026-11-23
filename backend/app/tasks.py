@@ -54,7 +54,7 @@ def process_media_job(job_id, source_path, source_size, output_id, output_path, 
             return {"status": "failed"}
         size = output.stat().st_size
         expires = time.time() + ttl_seconds
-        persistence.save_media(output_id, {"path": output_path, "filename": f"tikdownload-{operation}.mp4", "size": size, "content_type": "video/mp4", "expires_at": expires})
+        stored_output = storage.store_file(output, f"media/{output_id}.mp4")\n        persistence.save_media(output_id, {"path": stored_output, "filename": f"tikdownload-{operation}.mp4", "size": size, "content_type": "video/mp4", "expires_at": expires})
         persistence.update_job(job_id, status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=f"tikdownload-{operation}.mp4", size_bytes=size, original_size_bytes=source_size, size_change_bytes=size-source_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=ttl_seconds)
         return {"status": "completed", "output_id": output_id}
     except Exception:
