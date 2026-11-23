@@ -35,6 +35,34 @@ function showProcessStatus(message, kind = "") {
   processStatus.textContent = message;
   processStatus.className = "status-message" + (kind ? " " + kind : "");
 }
+function setProcessingProgress(value) {
+  const safe = Math.max(0, Math.min(100, Number(value) || 0));
+  progressWrap.hidden = false;
+  progressFill.style.width = `${safe}%`;
+  progressLabel.textContent = `${safe}%`;
+}
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes, index = 0;
+  while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
+  return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+async function pollProcessingJob(jobId) {
+  const deadline = Date.now() + 15 * 60 * 1000;
+  while (Date.now() < deadline) {
+    const response = await fetch(`${API_BASE}/api/v1/jobs/${jobId}`);
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.detail || "Could not check processing status.");
+    setProcessingProgress(job.progress);
+    showProcessStatus(job.message || "Processing video…");
+    if (job.status === "completed") return job;
+    if (job.status === "failed") throw new Error(job.message || "Processing failed.");
+    await new Promise(resolve => setTimeout(resolve, 850));
+  }
+  throw new Error("Processing status timed out. Check again later.");
+}
+
 function isTikTokUrl(value) {
   try {
     const parsed = new URL(value);
