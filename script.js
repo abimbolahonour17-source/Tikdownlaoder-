@@ -7,6 +7,11 @@ const fileInput = document.querySelector("#video-file");
 const uploadButton = document.querySelector("#upload-button");
 const uploadStatus = document.querySelector("#upload-status");
 const fileDownloadLink = document.querySelector("#file-download-link");
+const processButton = document.querySelector("#process-button");
+const processStatus = document.querySelector("#process-status");
+const operationSelect = document.querySelector("#video-operation");
+const resolutionSelect = document.querySelector("#video-resolution");
+let uploadedMediaId = null;
 const menuButton = document.querySelector(".menu-toggle");
 const nav = document.querySelector(".nav-links");
 
@@ -20,7 +25,7 @@ function showStatus(message, kind = "") {
   status.className = "status-message" + (kind ? " " + kind : "");
 }
 
-function showUploadStatus(message, kind = "") {
+function showProcessStatus(message, kind = "") {\n  processStatus.textContent = message;\n  processStatus.className = "status-message" + (kind ? " " + kind : "");\n}\n\nfunction showUploadStatus(message, kind = "") {
   uploadStatus.textContent = message;
   uploadStatus.className = "status-message" + (kind ? " " + kind : "");
 }
@@ -127,6 +132,31 @@ uploadButton.addEventListener("click", async () => {
   } finally {
     uploadButton.disabled = false;
     uploadButton.querySelector(".button-label").textContent = "Upload and prepare download";
+  }
+});
+
+processButton.addEventListener("click", async () => {
+  if (!uploadedMediaId) {
+    showProcessStatus("Upload a video before processing.", "error");
+    return;
+  }
+  processButton.disabled = true;
+  processButton.querySelector(".button-label").textContent = "Processing…";
+  showProcessStatus("FFmpeg is processing your video. This can take a few minutes.");
+  try {
+    const params = new URLSearchParams({ operation: operationSelect.value, resolution: resolutionSelect.value });
+    const response = await fetch(`${API_BASE}/api/v1/media/${uploadedMediaId}/process?${params.toString()}`, { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Processing failed");
+    fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    fileDownloadLink.textContent = `Download processed video (${result.operation}, ${result.resolution}p) ↓`;
+    fileDownloadLink.hidden = false;
+    showProcessStatus("Processing complete! Your MP4 is ready to download.", "success");
+  } catch (error) {
+    showProcessStatus(typeof error.message === "string" ? error.message : "Processing failed. Try another preset.", "error");
+  } finally {
+    processButton.disabled = false;
+    processButton.querySelector(".button-label").textContent = "Process video";
   }
 });
 
