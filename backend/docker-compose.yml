@@ -35,12 +35,15 @@ services:
       - "9001:9001"
     volumes:
       - object-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/minio/health/live >/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
     restart: unless-stopped
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minio-local-password}; do sleep 2; done && mc mb --ignore-existing local/tikdownload-media"]
+    restart: "no"
   api:
     build:
       context: .
@@ -65,8 +68,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
   worker:
     build:
@@ -75,8 +78,7 @@ services:
     command: ["rq", "worker", "video-processing", "--url", "redis://redis:6379/0"]
     environment:
       REDIS_URL: redis://redis:6379/0
-      DATABASE_URL: postgresql://tikdownload:
-        ${POSTGRES_PASSWORD:-local-development-password}@postgres:5432/tikdownload
+      DATABASE_URL: postgresql://tikdownload:${POSTGRES_PASSWORD:-local-development-password}@postgres:5432/tikdownload
       MEDIA_DIR: /data/media
       S3_BUCKET: tikdownload-media
       S3_ENDPOINT_URL: http://minio:9000
@@ -91,8 +93,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 volumes:
   postgres-data:
