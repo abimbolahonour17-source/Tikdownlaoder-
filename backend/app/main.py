@@ -4,6 +4,8 @@ import uuid
 import shutil
 import subprocess
 import threading
+import socket
+import ipaddress
 from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import urlparse
@@ -85,11 +87,64 @@ def validate_link(body: LinkRequest):
         return LinkValidation(valid=False, message="Enter a valid HTTPS TikTok video link.")
     return LinkValidation(valid=True, normalized_url=normalized, message="TikTok URL format looks valid.")
 
+def _is_public_https_media_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            return False
+        addresses = socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)
+        if not addresses:
+            return False
+        return all(ipaddress.ip_address(item[4][0]).is_global for item in addresses)
+    except (ValueError, OSError):
+        return False
+
 @app.post("/api/v1/download")
 def download_video(body: LinkRequest):
-    if not validate_tiktok_url(body.url):
+    normalized = validate_tiktok_url(body.url)
+    if not normalized:
         raise HTTPException(status_code=400, detail="Enter a valid HTTPS TikTok video link.")
-    raise HTTPException(status_code=501, detail={"code": "DOWNLOAD_PROVIDER_NOT_CONFIGURED", "message": "TikTok URL retrieval is not integrated. Use TikTok's save option where available, or upload a video you own or are authorized to use."})
+    provider_url = os.getenv("TIKTOK_RETRIEVAL_API_URL", "").strip()
+    provider_token = os.getenv("TIKTOK_RETRIEVAL_API_TOKEN", "").strip()
+    if not provider_url or not provider_token:
+        raise HTTPException(status_code=501, detail={"code": "DOWNLOAD_PROVIDER_NOT_CONFIGURED", "message": "URL retrieval requires a configured, authorized media provider. TikDownload does not scrape TikTok or bypass access controls."})
+    import httpx
+    try:
+        with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=False) as client:
+            provider_response = client.post(provider_url, json={"url": normalized}, headers={"Authorization": f"Bearer {provider_token}", "Accept": "application/json"})
+            provider_response.raise_for_status()
+            provider_data = provider_response.json()
+            media_url = provider_data.get("download_url")
+            if not isinstance(media_url, str) or not _is_public_https_media_url(media_url):
+                raise HTTPException(status_code=502, detail="Provider returned an unsafe or invalid media URL.")
+            filename = Path(str(provider_data.get("filename") or "tiktok-video.mp4")).name
+            if not filename.lower().endswith((".mp4", ".webm", ".mov")):
+                filename = "tiktok-video.mp4"
+            media_id = uuid.uuid4().hex
+            MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+            destination = MEDIA_DIR / f"{media_id}{Path(filename).suffix.lower()}"
+            size = 0
+            with client.stream("GET", media_url, follow_redirects=False) as stream:
+                stream.raise_for_status()
+                content_type = stream.headers.get("content-type", "").split(";")[0].lower()
+                if not content_type.startswith("video/"):
+                    raise HTTPException(status_code=502, detail="Provider media endpoint did not return a video.")
+                limit = MAX_UPLOAD_MB * 1024 * 1024
+                with destination.open("wb") as output:
+                    for chunk in stream.iter_bytes(1024 * 1024):
+                        size += len(chunk)
+                        if size > limit:
+                            raise HTTPException(status_code=413, detail=f"Retrieved video exceeds the {MAX_UPLOAD_MB} MB limit.")
+                        output.write(chunk)
+            expires = time.time() + MEDIA_TTL_SECONDS
+            record = {"id": media_id, "path": str(destination), "filename": filename, "size": size, "content_type": content_type, "expires_at": expires}
+            media_records[media_id] = record
+            persistence.save_media(media_id, record)
+            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieval completed through the configured provider."}
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="Configured media provider failed to retrieve the video.") from error
 
 @app.post("/api/v1/media/upload")
 async def upload_authorized_video(file: UploadFile = File(...)):
