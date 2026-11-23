@@ -24,10 +24,11 @@ def test_reject_http_url():
     assert response.status_code == 200
     assert response.json()["valid"] is False
 
-def test_tiktok_download_not_enabled():
+def test_tiktok_download_provider_key_missing(monkeypatch):
+    monkeypatch.delenv("GETINSAVER_API_KEY", raising=False)
     response = client.post("/api/v1/download", json={"url": "https://www.tiktok.com/@creator/video/123"})
-    assert response.status_code == 501
-    assert response.json()["detail"]["code"] == "DOWNLOAD_PROVIDER_NOT_CONFIGURED"
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "RETRIEVAL_PROVIDER_KEY_MISSING"
 
 def test_authorized_video_upload_and_download():
     fake_mp4 = b"0000ftypisom" + b"sample-video"
