@@ -190,7 +190,7 @@ processButton.addEventListener("click", async () => {
     const original = formatBytes(result.original_size_bytes);
     const processed = formatBytes(result.size_bytes);
     const change = result.size_change_bytes;
-    const comparison = change <= 0 ? ` — saved ${formatBytes(Math.abs(change))}` : ` — increased by ${formatBytes(change)`;
+    const comparison = change <= 0 ? ` — saved ${formatBytes(Math.abs(change))}` : ` — increased by ${formatBytes(change)}`;
     fileDownloadLink.textContent = `Download processed MP4 (${result.operation}, ${result.resolution}) ↓`;
     fileDownloadLink.hidden = false;
     showProcessStatus(`Done! Original: ${original} · Processed: ${processed}${comparison}.`, "success");
