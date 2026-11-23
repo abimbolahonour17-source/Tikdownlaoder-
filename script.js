@@ -3,16 +3,26 @@ const input = document.querySelector("#video-url");
 const status = document.querySelector("#url-status");
 const pasteButton = document.querySelector("#paste-button");
 const submitButton = document.querySelector("#download-button");
+const fileInput = document.querySelector("#video-file");
+const uploadButton = document.querySelector("#upload-button");
+const uploadStatus = document.querySelector("#upload-status");
+const fileDownloadLink = document.querySelector("#file-download-link");
 const menuButton = document.querySelector(".menu-toggle");
 const nav = document.querySelector(".nav-links");
 
 document.querySelector("#year").textContent = new Date().getFullYear();
 
 const API_BASE = (window.TIKDOWNLOAD_API_BASE || "").replace(/\/$/, "");
+const MAX_UPLOAD_MB = 80;
 
 function showStatus(message, kind = "") {
   status.textContent = message;
   status.className = "status-message" + (kind ? " " + kind : "");
+}
+
+function showUploadStatus(message, kind = "") {
+  uploadStatus.textContent = message;
+  uploadStatus.className = "status-message" + (kind ? " " + kind : "");
 }
 
 function isTikTokUrl(value) {
@@ -71,7 +81,7 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error("API request failed");
     const result = await response.json();
     if (result.valid) {
-      showStatus("Link validated. Video downloading is not enabled yet.", "success");
+      showStatus("Link format validated. TikTok retrieval is not connected; use the file-upload tool below for videos you have.", "success");
     } else {
       showStatus(result.message || "This link is not supported.", "error");
     }
@@ -80,6 +90,43 @@ form.addEventListener("submit", async (event) => {
   } finally {
     submitButton.disabled = false;
     submitButton.querySelector(".button-label").textContent = "Check link";
+  }
+});
+
+uploadButton.addEventListener("click", async () => {
+  const file = fileInput.files?.[0];
+  fileDownloadLink.hidden = true;
+  if (!file) {
+    showUploadStatus("Choose a video file first.", "error");
+    return;
+  }
+  const allowedTypes = ["video/mp4", "video/webm", "video/quicktime"];
+  if (!allowedTypes.includes(file.type)) {
+    showUploadStatus("Choose an MP4, WebM, or MOV video.", "error");
+    return;
+  }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    showUploadStatus(`This file is larger than ${MAX_UPLOAD_MB} MB.`, "error");
+    return;
+  }
+  uploadButton.disabled = true;
+  uploadButton.querySelector(".button-label").textContent = "Uploading…";
+  showUploadStatus("Uploading your file securely. Please keep this page open.");
+  try {
+    const data = new FormData();
+    data.append("file", file);
+    const response = await fetch(`${API_BASE}/api/v1/media/upload`, { method: "POST", body: data });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Upload failed");
+    fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    fileDownloadLink.textContent = "Download your video ↓";
+    fileDownloadLink.hidden = false;
+    showUploadStatus("Your video is ready. Download it using the link below.", "success");
+  } catch (error) {
+    showUploadStatus(typeof error.message === "string" ? error.message : "Upload failed. Please try again.", "error");
+  } finally {
+    uploadButton.disabled = false;
+    uploadButton.querySelector(".button-label").textContent = "Upload and prepare download";
   }
 });
 
