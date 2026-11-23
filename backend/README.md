@@ -11,7 +11,7 @@ FastAPI backend for TikDownload.
 - `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — convert to MP4 or compress with FFmpeg
 - `GET /api/v1/media/{id}/download` — download uploaded or processed temporary media
 
-Conversion uses H.264 video and AAC audio in an MP4 container. Compression uses CRF 28; conversion uses CRF 23. Resolution can be kept or scaled down to 1080p, 720p, or 480p. The processor uses FFmpeg with a 15-minute timeout. Temporary files expire after one hour by default.
+Conversion uses H.264 video and AAC audio in an MP4 container. Compression uses CRF 28; conversion uses CRF 23. Resolution can be kept or scaled down to 1080p, 720p, or 480p. Processing runs in a background thread and reports progress from FFmpeg's progress output when source duration is available. Jobs return `queued`, `running`, `completed`, or `failed` status. The worker has a 15-minute timeout. Temporary files expire after one hour by default.
 
 ## Run locally
 
@@ -64,4 +64,4 @@ This backend intentionally does not scrape or fetch video bytes from TikTok URLs
 - Upload and FFmpeg processing are synchronous request operations; large videos may need a background queue.
 - Media records and rate limiting are in-memory, and the default container filesystem may be ephemeral. Production should use shared object storage, persistent job records, and a queue.
 - Expiry cleanup is request-triggered rather than a scheduler.
-- Tests have been added but not run in this environment.
+- Tests run in GitHub Actions; FFmpeg itself is mocked in the processing test.
