@@ -54,6 +54,26 @@ Provider docs: https://developers.getinsaver.com/tiktok-downloader-api
 
 This adapter works with MinIO locally and can be configured for Cloudflare R2 or AWS S3. Media objects are stored under `media/` keys. Download responses temporarily localize an object before serving it, and workers localize source files before FFmpeg processing and upload completed output back to storage.
 
+### Supabase Storage configuration (S3-compatible)
+
+The backend adapter supports Supabase Storage through its S3-compatible API, using the same storage interface as MinIO and R2.
+
+1. Create a **private** bucket in Supabase Storage (for example `tikdownload-videos`).
+2. In Storage settings, open S3 configuration, enable S3 protocol if required, and generate server-side S3 access keys. Keep these keys secret because they provide server-side access.
+3. Copy the endpoint, region, access key, and secret shown in Supabase S3 settings. The endpoint should end in `/storage/v1/s3`.
+4. Set the existing S3 environment variables for both the API and worker:
+
+```env
+S3_BUCKET=tikdownload-videos
+S3_ENDPOINT_URL=https://<PROJECT_REF>.storage.supabase.co/storage/v1/s3
+S3_REGION=<region-from-supabase>
+S3_ACCESS_KEY_ID=<supabase-s3-access-key>
+S3_SECRET_ACCESS_KEY=<supabase-s3-secret>
+```
+
+The backend now uses Signature V4 and path-style addressing for compatibility. Do not put these credentials in frontend code or commit them to GitHub.
+
+
 ### Cloudflare R2 configuration
 
 Create an R2 bucket and an API token scoped to Object Read & Write for that bucket. Set these in `.env` (and set `DATABASE_URL` if using a managed PostgreSQL service):
