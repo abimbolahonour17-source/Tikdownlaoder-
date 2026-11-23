@@ -80,7 +80,22 @@ async def _rate_limited_response():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": APP_VERSION}
+    database = "ok"
+    queue = "local-thread"
+    try:
+        with persistence.connect() as db:
+            db.execute("SELECT 1")
+    except Exception:
+        database = "unavailable"
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        try:
+            from redis import Redis
+            Redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2).ping()
+            queue = "redis-ready"
+        except Exception:
+            queue = "redis-unavailable"
+    return {"status": "ok" if database == "ok" else "degraded", "version": APP_VERSION, "database": database, "queue": queue}
 
 @app.post("/api/v1/validate", response_model=LinkValidation)
 def validate_link(body: LinkRequest):
