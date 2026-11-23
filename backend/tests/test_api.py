@@ -38,6 +38,7 @@ def test_authorized_video_upload_and_download():
     download = client.get(data["download_url"])
     assert download.status_code == 200
     assert download.content == fake_mp4
+    import app.main as main\n    assert main.persistence.get_media(data["id"])["filename"] == "clip.mp4"
 
 def test_upload_rejects_non_video_mime():
     response = client.post("/api/v1/media/upload", files={"file": ("notes.txt", BytesIO(b"hello"), "text/plain")})
@@ -96,3 +97,12 @@ def test_processing_requires_ffmpeg(monkeypatch):
     assert upload.status_code == 200
     processed = client.post(f"/api/v1/media/{upload.json()['id']}/process?operation=convert")
     assert processed.status_code == 503
+
+def test_provider_media_url_rejects_private_addresses(monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main.socket, "getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("127.0.0.1", 443))])
+    assert main._is_public_https_media_url("https://localhost/video.mp4") is False
+
+def test_provider_media_url_requires_https():
+    import app.main as main
+    assert main._is_public_https_media_url("http://example.com/video.mp4") is False
