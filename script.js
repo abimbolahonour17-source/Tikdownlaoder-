@@ -18,7 +18,12 @@ let uploadedMediaId = null;
 const menuButton = document.querySelector(".menu-toggle");
 const nav = document.querySelector(".nav-links");
 
-document.querySelector("#year").textContent = new Date().getFullYear();
+// Upload/conversion tools are kept for local development until a durable serverless worker is configured.
+if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+  const uploadPanel = document.querySelector(".authorized-upload");
+  if (uploadPanel) uploadPanel.style.display = "none";
+}
+\ndocument.querySelector("#year").textContent = new Date().getFullYear();
 const defaultApiBase = ["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://127.0.0.1:8000" : window.location.origin;
 const API_BASE = (window.TIKDOWNLOAD_API_BASE || defaultApiBase).replace(/\/$/, "");
 const MAX_UPLOAD_MB = 80;
@@ -40,6 +45,13 @@ function setProcessingProgress(value) {
   progressWrap.hidden = false;
   progressFill.style.width = `${safe}%`;
   progressLabel.textContent = `${safe}%`;
+}
+function downloadHref(value) {
+  try {
+    return new URL(value, API_BASE).href;
+  } catch {
+    return "#";
+  }
 }
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
@@ -117,7 +129,7 @@ form.addEventListener("submit", async (event) => {
       const detail = typeof result.detail === "string" ? result.detail : result.detail?.message;
       throw new Error(detail || "Video retrieval is not available.");
     }
-    fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    fileDownloadLink.href = downloadHref(result.download_url);
     fileDownloadLink.textContent = `Download ${result.filename || "video"} ↓`;
     fileDownloadLink.hidden = false;
     showStatus(`Video ready (${formatBytes(result.size_bytes)}). Download below.`, "success");
@@ -158,7 +170,7 @@ uploadButton.addEventListener("click", async () => {
     if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Upload failed");
     uploadedMediaId = result.id;
     processButton.disabled = false;
-    fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    fileDownloadLink.href = downloadHref(result.download_url);
     fileDownloadLink.textContent = "Download original upload ↓";
     fileDownloadLink.hidden = false;
     showUploadStatus("Upload complete. Choose conversion or compression options.", "success");
