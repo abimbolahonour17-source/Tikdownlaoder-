@@ -59,6 +59,6 @@ def get_job(job_id):
 
 def list_queued_jobs():
     with connect() as db:
-        return [dict(row) for row in db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at").fetchall()
+        return [dict(row) for row in db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at").fetchall()]
 
 initialize()
