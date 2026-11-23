@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from . import persistence
 
 APP_VERSION = "0.2.0"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
@@ -21,7 +22,7 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "80"))
 MEDIA_TTL_SECONDS = int(os.getenv("MEDIA_TTL_SECONDS", "3600"))
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", "/tmp/tikdownload-media"))
 request_times: dict[str, deque[float]] = defaultdict(deque)
-media_records: dict[str, dict] = {}
+media_records: dict[str, dict] = {record['id']: record for record in persistence.list_media()}
 processing_jobs: dict[str, dict] = {}
 
 app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION)
@@ -54,6 +55,7 @@ def _cleanup_expired_media():
                 Path(record["path"]).unlink(missing_ok=True)
             finally:
                 media_records.pop(media_id, None)
+                persistence.delete_media(media_id)
 
 @app.middleware("http")
 async def basic_rate_limit(request: Request, call_next):
@@ -125,7 +127,9 @@ async def upload_authorized_video(file: UploadFile = File(...)):
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=415, detail="The uploaded file does not appear to be a supported video.")
     expires = time.time() + MEDIA_TTL_SECONDS
-    media_records[media_id] = {"path": str(destination), "filename": filename, "size": size, "content_type": file.content_type, "expires_at": expires}
+    record = {"id": media_id, "path": str(destination), "filename": filename, "size": size, "content_type": file.content_type, "expires_at": expires}
+    media_records[media_id] = record
+    persistence.save_media(media_id, record)
     return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Your authorized video file is ready for download."}
 
 def _probe_duration(path: str) -> float | None:
@@ -142,6 +146,7 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
     job = processing_jobs[job_id]
     job["status"] = "running"
     job["message"] = "FFmpeg is processing your video."
+    persistence.update_job(job_id, status="running", message=job["message"])
     duration = _probe_duration(source["path"])
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -161,11 +166,15 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
         if return_code != 0 or not output_path.exists() or output_path.stat().st_size == 0:
             output_path.unlink(missing_ok=True)
             job.update(status="failed", progress=0, message="Video processing failed. Try another video or preset.")
+            persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
             return
         expires = time.time() + MEDIA_TTL_SECONDS
         output_size = output_path.stat().st_size
-        media_records[output_id] = {"path": str(output_path), "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
+        record = {"id": output_id, "path": str(output_path), "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
+        media_records[output_id] = record
+        persistence.save_media(output_id, record)
         job.update(status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=media_records[output_id]["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, operation=operation, resolution=resolution, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
+        persistence.update_job(job_id, status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=media_records[output_id]["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
     except subprocess.TimeoutExpired:
         try:
             process.kill()
@@ -173,41 +182,53 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
             pass
         output_path.unlink(missing_ok=True)
         job.update(status="failed", progress=0, message="Video processing took too long.")
+        persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
     except Exception:
         output_path.unlink(missing_ok=True)
         job.update(status="failed", progress=0, message="Video processing failed unexpectedly.")
+        persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
 
 @app.post("/api/v1/media/{media_id}/process", status_code=202)
 def process_uploaded_video(media_id: str, operation: str = "convert", resolution: str = "keep"):
-    """Queue authorized uploaded media conversion/compression as a background job."""
+    """Queue authorized uploaded media conversion/compression."""
     _cleanup_expired_media()
-    source = media_records.get(media_id)
+    source = media_records.get(media_id) or persistence.get_media(media_id)
     if not source:
         raise HTTPException(status_code=404, detail="Upload not found or expired.")
     if operation not in {"convert", "compress"}:
         raise HTTPException(status_code=400, detail="Choose convert or compress.")
     if resolution not in {"keep", "1080", "720", "480"}:
         raise HTTPException(status_code=400, detail="Unsupported resolution preset.")
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
+    if not shutil.which("ffmpeg"):
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
     job_id = uuid.uuid4().hex
     output_id = uuid.uuid4().hex
     output_path = MEDIA_DIR / f"{output_id}.mp4"
-    command = [ffmpeg, "-y", "-i", source["path"], "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
-    command += ["-crf", "28" if operation == "compress" else "23"]
-    if resolution != "keep":
-        command += ["-vf", f"scale=-2:{int(resolution)}:force_original_aspect_ratio=decrease"]
-    command += [str(output_path)]
-    processing_jobs[job_id] = {"id": job_id, "status": "queued", "progress": 0, "message": "Job queued.", "created_at": time.time(), "media_id": media_id, "operation": operation, "resolution": resolution}
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    thread = threading.Thread(target=_run_processing_job, args=(job_id, source.copy(), output_id, output_path, command, operation, resolution), daemon=True)
-    thread.start()
+    job = {"id": job_id, "status": "queued", "progress": 0, "message": "Job queued.", "created_at": time.time(), "media_id": media_id, "operation": operation, "resolution": resolution}
+    processing_jobs[job_id] = job
+    persistence.create_job(job)
+    try:
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            from redis import Redis
+            from rq import Queue
+            redis_conn = Redis.from_url(redis_url)
+            queue = Queue("video-processing", connection=redis_conn)
+            queue.enqueue("app.tasks.process_media_job", job_id, source["path"], source["size"], output_id, str(output_path), operation, resolution, MEDIA_TTL_SECONDS, str(MEDIA_DIR), job_id=job_id, job_timeout=950, result_ttl=3600, failure_ttl=86400)
+            job["queue"] = "redis"
+        else:
+            # Development fallback; durable records are retained, but local execution is process-bound.
+            thread = threading.Thread(target=_run_processing_job, args=(job_id, source.copy(), output_id, output_path, [shutil.which("ffmpeg"), "-y", "-i", source["path"], "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", "-crf", "28" if operation == "compress" else "23"] + (["-vf", f"scale=-2:{int(resolution)}:force_original_aspect_ratio=decrease"] if resolution != "keep" else []) + [str(output_path)], operation, resolution), daemon=True)
+            thread.start()
+            job["queue"] = "local-thread"
+    except Exception:
+        persistence.update_job(job_id, status="failed", message="Could not enqueue video processing job.")
+        raise HTTPException(status_code=503, detail="Processing queue is unavailable. Try again later.")
     return {"job_id": job_id, "status": "queued", "progress": 0, "message": "Processing job queued.", "status_url": f"/api/v1/jobs/{job_id}"}
 
 @app.get("/api/v1/jobs/{job_id}")
 def get_processing_job(job_id: str):
-    job = processing_jobs.get(job_id)
+    job = persistence.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Processing job not found.")
     return {key: value for key, value in job.items() if key not in {"created_at", "media_id"}}
@@ -215,7 +236,7 @@ def get_processing_job(job_id: str):
 @app.get("/api/v1/media/{media_id}/download")
 def download_uploaded_video(media_id: str):
     _cleanup_expired_media()
-    record = media_records.get(media_id)
+    record = media_records.get(media_id) or persistence.get_media(media_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found or its temporary link has expired.")
     path = Path(record["path"])
