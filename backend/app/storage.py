@@ -5,17 +5,19 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", "/tmp/tikdownload-media"))
-S3_BUCKET = os.getenv("S3_BUCKET", "").strip()
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "").strip()
-S3_REGION = os.getenv("S3_REGION", "auto").strip()
-S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "").strip()
-S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "").strip()
+S3_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", os.getenv("S3_BUCKET", "")).strip()
+S3_ENDPOINT_URL = os.getenv("SUPABASE_S3_ENDPOINT_URL", os.getenv("S3_ENDPOINT_URL", "")).strip()
+S3_REGION = os.getenv("SUPABASE_S3_REGION", os.getenv("S3_REGION", "auto")).strip()
+S3_ACCESS_KEY_ID = os.getenv("SUPABASE_S3_ACCESS_KEY_ID", os.getenv("S3_ACCESS_KEY_ID", "")).strip()
+S3_SECRET_ACCESS_KEY = os.getenv("SUPABASE_S3_SECRET_ACCESS_KEY", os.getenv("S3_SECRET_ACCESS_KEY", "")).strip()
 S3_ENABLED = bool(S3_BUCKET and S3_ENDPOINT_URL and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY)
 
 def _client():
     import boto3
+    from botocore.config import Config
     return boto3.client("s3", endpoint_url=S3_ENDPOINT_URL, region_name=S3_REGION,
-        aws_access_key_id=S3_ACCESS_KEY_ID, aws_secret_access_key=S3_SECRET_ACCESS_KEY)
+        aws_access_key_id=S3_ACCESS_KEY_ID, aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}))
 
 def _guess_content_type(path):
     ext = Path(path).suffix.lower()
