@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import persistence
+from . import persistence, storage
 
 def process_media_job(job_id, source_path, source_size, output_id, output_path, operation, resolution, ttl_seconds, media_dir):
     job = persistence.get_job(job_id)
