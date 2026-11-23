@@ -1,83 +1,104 @@
 # TikDownload API
 
-FastAPI backend for TikDownload.
+FastAPI backend for TikDownload. It supports temporary video storage, FFmpeg conversion/compression, persistent job/media metadata, and provider-based TikTok URL retrieval.
 
 ## Endpoints
 
 - `GET /health` — health/version
 - `POST /api/v1/validate` — validate HTTPS TikTok URL format
-- `POST /api/v1/download` — retrieves a TikTok URL through a configured authorized provider adapter (provider configuration required; otherwise returns 501)
+- `POST /api/v1/download` — retrieve through the configured authorized provider; returns 501 until configured
 - `POST /api/v1/media/upload` — upload authorized MP4, WebM, or MOV files
-- `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — convert to MP4 or compress with FFmpeg
-- `GET /api/v1/media/{id}/download` — download retrieved, uploaded, or processed temporary media
+- `POST /api/v1/media/{id}/process?operation=convert|compress&resolution=keep|1080|720|480` — queue conversion/compression
+- `GET /api/v1/jobs/{job_id}` — status, progress, and output metadata
+- `GET /api/v1/media/{id}/download` — download retrieved, uploaded, or processed media
 
-Conversion uses H.264 video and AAC audio in an MP4 container. Compression uses CRF 28; conversion uses CRF 23. Resolution can be kept or scaled down to 1080p, 720p, or 480p. Processing runs in a background thread and reports progress from FFmpeg's progress output when source duration is available. Jobs return `queued`, `running`, `completed`, or `failed` status. A hard timeout during the live-output read still needs to be added and tested. Temporary files expire after one hour by default.
+## Docker Compose deployment
 
-## Docker Compose (API + Redis + queue worker)
-
-From the `backend` directory, start the API, Redis, and durable RQ worker:
+From this directory:
 
 ```bash
 docker compose up --build -d
 ```
 
-API: `http://localhost:8000`
-Swagger: `http://localhost:8000/docs`
+Services:
+- **API:** `http://localhost:8000`
+- **Redis:** persistent queue backing
+- **RQ worker:** FFmpeg processing service
 
-Media and SQLite database are stored in the named `tikdownload-data` volume; Redis queue persistence is enabled through append-only mode. The worker shares the media/database volume. Set `CORS_ORIGINS` and provider credentials before deploying publicly.
+The named `tikdownload-data` volume stores uploaded/processed media and the SQLite metadata database. Redis uses append-only persistence. Both the API and worker share the media/database volume.
 
-## Run locally
+Before public deployment, set a production frontend origin for `CORS_ORIGINS`, secure secrets, TLS/reverse proxy, and suitable upload limits.
 
-Python 3.10+ recommended. Install FFmpeg separately and make sure `ffmpeg` is on PATH.
+## Run locally without Redis
+
+Python 3.10+ recommended. Install FFmpeg separately and ensure it is on PATH.
 
 ```bash
 cd backend
 python -m venv .venv
-# macOS/Linux:
 source .venv/bin/activate
-# Windows PowerShell:
-# .venv\\Scripts\\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-API docs: http://127.0.0.1:8000/docs
+Without `REDIS_URL`, processing uses a local development thread. With Redis configured, jobs are enqueued to RQ and the separate worker processes them.
 
-The Dockerfile installs FFmpeg for container deployments.
+API docs: `http://127.0.0.1:8000/docs`
 
-## Upload and process example
+## Video processing
+
+Conversion uses H.264/AAC MP4; compression uses CRF 28 (conversion uses CRF 23). Resolution presets preserve aspect ratio and allow keep, 1080p, 720p, or 480p. Progress is persisted while FFmpeg runs. Temporary output links expire after one hour by default.
+
+Example upload:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/media/upload -F "file=@my-video.mp4"
 ```
 
-Upload response contains a media `id`. Use that ID to process:
+Queue a compression job (replace `MEDIA_ID`):
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/media/MEDIA_ID/process?operation=compress&resolution=720"
 ```
 
-The API returns a job ID. Poll `GET /api/v1/jobs/{job_id}` for progress and a temporary `download_url` when completed. Convert example: `operation=convert&resolution=keep`.
+Poll status using the returned `job_id`:
 
-## Configuration
+```bash
+curl http://127.0.0.1:8000/api/v1/jobs/JOB_ID
+```
 
-- `CORS_ORIGINS`: allowed frontend origins
-- `RATE_WINDOW_SECONDS`: rate limit window (default 60)
-- `RATE_LIMIT_REQUESTS`: requests per client/window (default 30)
-- `MAX_UPLOAD_MB`: upload limit (default 80)
-- `MEDIA_TTL_SECONDS`: download expiry (default 3600)
-- `MEDIA_DIR`: storage folder (default /tmp/tikdownload-media)
-- `TIKDOWNLOAD_DB_PATH`: SQLite metadata database (default /tmp/tikdownload.sqlite3)
-- `REDIS_URL`: when set, processing is enqueued to RQ; local thread fallback is used when unset
-- `TIKTOK_RETRIEVAL_API_URL` / `TIKTOK_RETRIEVAL_API_TOKEN`: authorized retrieval provider endpoint and token
+When completed, the job response includes a `download_url`, `size_bytes`, `original_size_bytes`, and `size_change_bytes`.
 
-## TikTok URL retrieval status
+## TikTok URL retrieval provider
 
-This backend intentionally does not scrape or fetch video bytes from TikTok URLs. TikTok's official developer APIs offer public-video metadata/display and creator upload/posting flows, but do not provide a general-purpose endpoint for downloading arbitrary TikTok video URLs. A retrieval feature would require a lawful, authorized source/API that provides media files and must not bypass privacy or access controls. The current URL field only validates a TikTok link.
+TikDownload has a provider adapter, but no retrieval provider is bundled or configured by default. Set:
 
-## Deployment limitations
+- `TIKTOK_RETRIEVAL_API_URL` — provider API endpoint
+- `TIKTOK_RETRIEVAL_API_TOKEN` — bearer token
 
-- Upload and FFmpeg processing are synchronous request operations; large videos may need a background queue.
-- Media records and rate limiting are in-memory, and the default container filesystem may be ephemeral. Production should use shared object storage, persistent job records, and a queue.
-- Expiry cleanup is request-triggered rather than a scheduler.
-- Tests run in GitHub Actions; FFmpeg itself is mocked in the processing test.
+TikDownload POSTs JSON `{"url":"<validated TikTok URL>"}` to the provider endpoint. Provider response format:
+
+```json
+{
+  "download_url": "https://public-provider-cdn.example/video.mp4",
+  "filename": "video.mp4"
+}
+```
+
+The media URL must be HTTPS, resolve to public IP addresses, and return a video content type. Redirects are not followed, and retrieval size is limited by `MAX_UPLOAD_MB`. The provider endpoint must be chosen/configured by the operator and must be used only for content the requester is authorized to retrieve. This adapter does not scrape TikTok or bypass access controls.
+
+## Environment configuration
+
+- `CORS_ORIGINS` — allowed browser origins
+- `RATE_WINDOW_SECONDS` — limiter window (default 60)
+- `RATE_LIMIT_REQUESTS` — requests per client/window (default 30)
+- `MAX_UPLOAD_MB` — upload/retrieval size limit (default 80)
+- `MEDIA_TTL_SECONDS` — temporary link expiry (default 3600)
+- `MEDIA_DIR` — media file storage directory
+- `TIKDOWNLOAD_DB_PATH` — SQLite metadata file
+- `REDIS_URL` — enable Redis/RQ queue (unset for local thread fallback)
+- `TIKTOK_RETRIEVAL_API_URL` and `TIKTOK_RETRIEVAL_API_TOKEN` — provider adapter settings
+
+## Production limitations
+
+SQLite and local shared volume are suitable for a single-host deployment. Multi-host API/worker scaling should move metadata to PostgreSQL and media to object storage. Rate limiting remains process-local. Expiry cleanup is request-triggered and should be scheduled in production. FFmpeg is mocked in the unit test; validate actual FFmpeg behavior in Docker before opening the service publicly.
