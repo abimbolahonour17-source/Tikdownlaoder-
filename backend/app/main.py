@@ -219,7 +219,7 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
             elif line == "progress=end":
                 job["progress"] = 99
                 persistence.update_job(job_id, progress=99)
-return_code = process.wait(timeout=900)
+        return_code = process.wait(timeout=900)
         if return_code != 0 or not output_path.exists() or output_path.stat().st_size == 0:
             output_path.unlink(missing_ok=True)
             job.update(status="failed", progress=0, message="Video processing failed. Try another video or preset.")
