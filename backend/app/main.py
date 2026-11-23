@@ -172,8 +172,6 @@ async def upload_authorized_video(file: UploadFile = File(...)):
     """Store a video the user owns or is authorized to use and return a temporary download URL."""
     if os.getenv("VERCEL") == "1":
         raise HTTPException(status_code=503, detail="Direct uploads are temporarily unavailable on this hosting setup. TikTok link downloads remain available.")
-    if os.getenv("VERCEL") == "1":
-        raise HTTPException(status_code=503, detail="Uploads are temporarily unavailable on this hosting setup.")
     _cleanup_expired_media()
     accepted_types = {"video/mp4", "video/webm", "video/quicktime"}
     accepted_extensions = {".mp4", ".webm", ".mov"}
@@ -280,8 +278,6 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
 @app.post("/api/v1/media/{media_id}/process", status_code=202)
 def process_uploaded_video(media_id: str, operation: str = "convert", resolution: str = "keep"):
     """Queue authorized uploaded media conversion/compression."""
-    if os.getenv("VERCEL") == "1":
-        raise HTTPException(status_code=503, detail="Video processing is temporarily unavailable on this hosting setup.")
     if os.getenv("VERCEL") == "1":
         raise HTTPException(status_code=503, detail="Video processing is temporarily unavailable on this hosting setup.")
     _cleanup_expired_media()
