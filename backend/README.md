@@ -13,7 +13,20 @@ FastAPI backend for TikDownload.
 
 Conversion uses H.264 video and AAC audio in an MP4 container. Compression uses CRF 28; conversion uses CRF 23. Resolution can be kept or scaled down to 1080p, 720p, or 480p. Processing runs in a background thread and reports progress from FFmpeg's progress output when source duration is available. Jobs return `queued`, `running`, `completed`, or `failed` status. A hard timeout during the live-output read still needs to be added and tested. Temporary files expire after one hour by default.
 
-## Docker Compose (API + Redis + queue worker)\n\nFrom the `backend` directory, start the API, Redis, and durable RQ worker:\n\n```bash\ndocker compose up --build -d\n```\n\nAPI: `http://localhost:8000`\nSwagger: `http://localhost:8000/docs`\n\nMedia and SQLite database are stored in the named `tikdownload-data` volume; Redis queue persistence is enabled through append-only mode. The worker shares the media/database volume. Set `CORS_ORIGINS` and provider credentials before deploying publicly.\n\n## Run locally
+## Docker Compose (API + Redis + queue worker)
+
+From the `backend` directory, start the API, Redis, and durable RQ worker:
+
+```bash
+docker compose up --build -d
+```
+
+API: `http://localhost:8000`
+Swagger: `http://localhost:8000/docs`
+
+Media and SQLite database are stored in the named `tikdownload-data` volume; Redis queue persistence is enabled through append-only mode. The worker shares the media/database volume. Set `CORS_ORIGINS` and provider credentials before deploying publicly.
+
+## Run locally
 
 Python 3.10+ recommended. Install FFmpeg separately and make sure `ffmpeg` is on PATH.
 
@@ -53,7 +66,10 @@ The API returns a job ID. Poll `GET /api/v1/jobs/{job_id}` for progress and a te
 - `RATE_LIMIT_REQUESTS`: requests per client/window (default 30)
 - `MAX_UPLOAD_MB`: upload limit (default 80)
 - `MEDIA_TTL_SECONDS`: download expiry (default 3600)
-- `MEDIA_DIR`: storage folder (default /tmp/tikdownload-media)\n- `TIKDOWNLOAD_DB_PATH`: SQLite metadata database (default /tmp/tikdownload.sqlite3)\n- `REDIS_URL`: when set, processing is enqueued to RQ; local thread fallback is used when unset\n- `TIKTOK_RETRIEVAL_API_URL` / `TIKTOK_RETRIEVAL_API_TOKEN`: authorized retrieval provider endpoint and token
+- `MEDIA_DIR`: storage folder (default /tmp/tikdownload-media)
+- `TIKDOWNLOAD_DB_PATH`: SQLite metadata database (default /tmp/tikdownload.sqlite3)
+- `REDIS_URL`: when set, processing is enqueued to RQ; local thread fallback is used when unset
+- `TIKTOK_RETRIEVAL_API_URL` / `TIKTOK_RETRIEVAL_API_TOKEN`: authorized retrieval provider endpoint and token
 
 ## TikTok URL retrieval status
 
