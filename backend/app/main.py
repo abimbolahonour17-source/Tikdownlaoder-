@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from . import persistence, storage
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
 RATE_WINDOW_SECONDS = int(os.getenv("RATE_WINDOW_SECONDS", "60"))
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))
@@ -158,7 +158,7 @@ def download_video(body: LinkRequest):
             record = {"id": media_id, "path": stored_path, "filename": filename, "size": size, "content_type": content_type, "expires_at": expires}
             media_records[media_id] = record
             persistence.save_media(media_id, record)
-            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
+            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": storage.presigned_download_url(stored_path, filename, MEDIA_TTL_SECONDS) or f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
     except HTTPException:
         raise
     except Exception as error:
@@ -170,6 +170,8 @@ def download_video(body: LinkRequest):
 @app.post("/api/v1/media/upload")
 async def upload_authorized_video(file: UploadFile = File(...)):
     """Store a video the user owns or is authorized to use and return a temporary download URL."""
+    if os.getenv("VERCEL") == "1":
+        raise HTTPException(status_code=503, detail="Direct uploads are temporarily unavailable on this hosting setup. TikTok link downloads remain available.")
     _cleanup_expired_media()
     accepted_types = {"video/mp4", "video/webm", "video/quicktime"}
     accepted_extensions = {".mp4", ".webm", ".mov"}
@@ -276,6 +278,8 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
 @app.post("/api/v1/media/{media_id}/process", status_code=202)
 def process_uploaded_video(media_id: str, operation: str = "convert", resolution: str = "keep"):
     """Queue authorized uploaded media conversion/compression."""
+    if os.getenv("VERCEL") == "1":
+        raise HTTPException(status_code=503, detail="Video processing is temporarily unavailable on this hosting setup.")
     _cleanup_expired_media()
     source = media_records.get(media_id) or persistence.get_media(media_id)
     if not source:
