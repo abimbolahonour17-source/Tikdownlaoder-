@@ -62,7 +62,7 @@
               <select id="video-resolution"><option value="keep">Keep original resolution</option><option value="1080">1080p</option><option value="720" selected>720p</option><option value="480">480p</option></select>
               <button type="button" class="download-button process-button" id="process-button" disabled><span class="button-label">Process video</span><span class="button-arrow">⚙</span></button>
             </div>
-            <div class="status-message" id="process-status" role="status" aria-live="polite"></div>
+            <div class="status-message" id="process-status" role="status" aria-live="polite"></div><div class="processing-progress" id="processing-progress" hidden><div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div><span id="progress-label">0%</span></div>
             <a id="file-download-link" class="text-link upload-result" hidden download>Download your video <span>↓</span></a>
             <p class="upload-help">Uploads are temporary and expire after one hour. Only upload videos you own or are authorized to use.</p>
           </div>
