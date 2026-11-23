@@ -14,7 +14,7 @@ Open `index.html` directly to view the interface. For API-backed validation, run
 
 ## Backend
 
-The API supports temporary upload and download of video files users own or are authorized to use. See `backend/README.md` for endpoint details. TikTok URL retrieval itself is not enabled.
+The API supports temporary uploads, FFmpeg conversion/compression, and downloads of user-authorized video files. TikTok URL-to-file retrieval is not enabled. See `backend/README.md` for details.
 
 FastAPI backend lives in `backend/`.
 
@@ -23,8 +23,9 @@ FastAPI backend lives in `backend/`.
 - `GET /health` — health and version check
 - `POST /api/v1/validate` — validate an HTTPS TikTok link
 - `POST /api/v1/download` — 501 placeholder for TikTok retrieval
-- `POST /api/v1/media/upload` — uploads authorized MP4/WebM/MOV files and returns a temporary download link
-- `GET /api/v1/media/{id}/download` — serves temporary uploaded media
+- `POST /api/v1/media/upload` — uploads authorized MP4/WebM/MOV files
+- `POST /api/v1/media/{id}/process` — FFmpeg MP4 conversion or compression with optional 1080p/720p/480p output scaling
+- `GET /api/v1/media/{id}/download` — serves original or processed temporary media
 
 Interactive API docs are available at `/docs` when the API is running.
 
