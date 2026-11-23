@@ -67,7 +67,13 @@ S3_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
 DATABASE_URL=<managed-postgresql-connection-string>
 ```
 
-The Compose API and worker use these same environment variables. The local MinIO service and initializer still start in Compose but are not the media destination when the R2 endpoint is configured. R2 uses an S3-compatible API; refer to Cloudflare's setup guide for creating buckets, credentials, and endpoint URLs.
+The local Compose API and worker use these same variables; MinIO is started for local development. For production with managed PostgreSQL and Cloudflare R2, use the separate `docker-compose.cloud.yml` stack instead. It does not start local PostgreSQL or MinIO and requires the cloud connection/credentials in `.env`:
+
+```bash
+docker compose -f docker-compose.cloud.yml up --build -d
+```
+
+R2 uses an S3-compatible API; refer to Cloudflare's setup guide for creating buckets, credentials, and endpoint URLs.
 
 **Important:** existing SQLite records/media are not automatically migrated to PostgreSQL/object storage. Back up and migrate any data you need before switching production settings.
 
