@@ -51,7 +51,9 @@ def validate_tiktok_url(value: str) -> str | None:
 
 def _cleanup_expired_media():
     now = time.time()
-    for record in persistence.list_media():\n        media_id = record["id"]\n        media_records[media_id] = record
+    for record in persistence.list_media():
+        media_id = record["id"]
+        media_records[media_id] = record
         if record["expires_at"] <= now:
             try:
                 Path(record["path"]).unlink(missing_ok=True)
