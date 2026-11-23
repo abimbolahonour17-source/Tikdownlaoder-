@@ -224,12 +224,12 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
     job["message"] = "FFmpeg is processing your video."
     persistence.update_job(job_id, status="running", message=job["message"])
     source_local = storage.temporary_path(Path(source["filename"]).suffix or ".mp4")
-    storage.localize(source["path"], source_local)
-    command = [str(source_local) if item == source["path"] else item for item in command]
-    duration = _probe_duration(str(source_local))
     process = None
     timeout_timer = None
     try:
+        storage.localize(source["path"], source_local)
+        command = [str(source_local) if item == source["path"] else item for item in command]
+        duration = _probe_duration(str(source_local))
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         timeout_timer = threading.Timer(900, lambda: getattr(process, "kill", lambda: None)())
         timeout_timer.daemon = True
@@ -246,8 +246,6 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
                 job["progress"] = 99
                 persistence.update_job(job_id, progress=99)
         return_code = process.wait(timeout=900)
-        if timeout_timer:
-            timeout_timer.cancel()
         if return_code != 0 or not output_path.exists() or output_path.stat().st_size == 0:
             job.update(status="failed", progress=0, message="Video processing failed. Try another video or preset.")
             persistence.update_job(job_id, status="failed", progress=0, message=job["message"])
