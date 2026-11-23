@@ -38,7 +38,8 @@ def test_authorized_video_upload_and_download():
     download = client.get(data["download_url"])
     assert download.status_code == 200
     assert download.content == fake_mp4
-    import app.main as main\n    assert main.persistence.get_media(data["id"])["filename"] == "clip.mp4"
+    import app.main as main
+    assert main.persistence.get_media(data["id"])["filename"] == "clip.mp4"
 
 def test_upload_rejects_non_video_mime():
     response = client.post("/api/v1/media/upload", files={"file": ("notes.txt", BytesIO(b"hello"), "text/plain")})
@@ -54,11 +55,11 @@ def test_ffmpeg_processing_endpoint(monkeypatch, tmp_path):
     class FakeProcess:
         def __init__(self, command, **kwargs):
             Path(command[-1]).write_bytes(b"processed-mp4")
-            self.stdout = iter(["out_time_ms=5000000\\n", "progress=end\\n"])
+            self.stdout = iter(["out_time_ms=5000000\n", "progress=end\n"])
         def wait(self, timeout=None):
             return 0
     monkeypatch.setattr(main.subprocess, "Popen", FakeProcess)
-    monkeypatch.setattr(main.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="5.0\\n", stderr=""))
+    monkeypatch.setattr(main.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="5.0\n", stderr=""))
     source = b"0000ftypisom" + b"source-video"
     upload = client.post("/api/v1/media/upload", files={"file": ("clip.mp4", BytesIO(source), "video/mp4")})
     assert upload.status_code == 200
