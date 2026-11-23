@@ -341,7 +341,7 @@ def download_uploaded_video(media_id: str):
     if not storage.exists(record["path"]):
         media_records.pop(media_id, None)
         raise HTTPException(status_code=404, detail="File not found.")
-    from fastapi.background import BackgroundTask
+    from starlette.background import BackgroundTask
     temporary = storage.temporary_path(Path(record["filename"]).suffix)
     storage.localize(record["path"], temporary)
     return FileResponse(temporary, media_type=record["content_type"], filename=record["filename"], headers={"Cache-Control": "no-store"}, background=BackgroundTask(temporary.unlink, missing_ok=True))
