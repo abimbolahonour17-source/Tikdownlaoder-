@@ -1,47 +1,72 @@
 # TikDownload
 
-A responsive, single-page TikDownload landing page prototype. The interface is designed to make it easy to paste a TikTok video link and check whether it is supported.
+A responsive frontend prototype plus a small FastAPI service for validating TikTok URLs.
 
-> **Current status:** Frontend prototype only. No video retrieval or downloading backend is connected. Use only content you own or have permission to save, and respect platform access restrictions and applicable terms.
+> **Download status:** This repository includes URL validation and a download endpoint placeholder. It does not retrieve video files. Use TikTok's built-in save feature or an authorized source. Only save content you own or have permission to download.
 
-## Features
+## Frontend
 
-- Responsive dark theme with purple accents
-- Video URL input with clipboard paste helper
-- HTTPS TikTok host validation
-- Mobile navigation toggle
-- How-it-works, features, FAQ, and footer sections
-- Accessible form labels and live status feedback
-- No external framework or build step required
+- `index.html`: page markup
+- `styles.css`: responsive dark-purple styling
+- `script.js`: clipboard paste, client-side URL checks, API validation call, mobile navigation
 
-## Run locally
+Open `index.html` directly to view the interface. For API-backed validation, run the backend and serve the frontend through a local web server (for example, `python3 -m http.server 5500`).
 
-1. Clone this repository.
-2. Open `index.html` in your browser.
+## Backend
 
-For a local development server (optional), run:
+FastAPI backend lives in `backend/`.
+
+### Endpoints
+
+- `GET /health` — health and version check
+- `POST /api/v1/validate` — validate an HTTPS TikTok link
+- `POST /api/v1/download` — returns `501 DOWNLOAD_PROVIDER_NOT_CONFIGURED` for supported URLs because download retrieval is not implemented
+
+Interactive API docs are available at `/docs` when the API is running.
+
+### Run API locally
+
+Python 3.10+ recommended.
 
 ```bash
-python3 -m http.server 8000
+cd backend
+python -m venv .venv
+# macOS/Linux:
+source .venv/bin/activate
+# Windows PowerShell:
+# .venv\\Scripts\\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Then open http://localhost:8000.
+### Configure API/frontend
 
-## Project files
+Optional environment variables:
 
-- `index.html` — page structure and content
-- `styles.css` — responsive styles
-- `script.js` — URL validation, paste helper, status messages, and navigation
+- `CORS_ORIGINS`: comma-separated allowed origins. Defaults to common local frontend ports.
+- `RATE_WINDOW_SECONDS`: rate-limit window (default 60 seconds).
+- `RATE_LIMIT_REQUESTS`: requests per client per window (default 30).
 
-## Next steps
+Frontend API base is same-origin by default. To use a separate API host, define `window.TIKDOWNLOAD_API_BASE` before loading `script.js` in `index.html`.
 
-1. Review technical and platform feasibility for a compliant download workflow.
-2. Define a backend API contract and supported URLs.
-3. Add server-side validation, abuse protection, rate limits, request timeouts, and privacy-conscious logging.
-4. Integrate a retrieval method only if it is permitted and reliable.
-5. Test the interface and API on mobile and desktop.
-6. Configure hosting, HTTPS, monitoring, and launch checklist.
+### Tests
 
-## Use and privacy
+From the `backend` directory:
 
-This prototype does not send pasted links to a server. It validates them locally in the browser. A processing/download service is not yet configured. Avoid downloading or redistributing copyrighted content without authorization.
+```bash
+pytest
+```
+
+## Backend safety notes
+
+- User-submitted URLs are not fetched by this API.
+- Validation uses a hostname allowlist and HTTPS-only policy.
+- The basic limiter is in-memory; for production multi-instance deployments, replace it with a shared limiter and review proxy/IP handling.
+- Do not add a downloader that bypasses access controls, private-content restrictions, or platform safeguards. Before any retrieval integration, verify its terms, legal basis, and reliability.
+
+## Roadmap
+
+1. Deploy API and configure frontend API origin.
+2. Add automated tests/CI and verify deployment.
+3. Review download capability and platform constraints before implementing retrieval.
+4. Add persistent/shared rate limiting and production observability if needed.
