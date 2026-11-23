@@ -8,7 +8,7 @@ const uploadButton = document.querySelector("#upload-button");
 const uploadStatus = document.querySelector("#upload-status");
 const fileDownloadLink = document.querySelector("#file-download-link");
 const processButton = document.querySelector("#process-button");
-const processStatus = document.querySelector("#process-status");
+const processStatus = document.querySelector("#process-status");\nconst progressWrap = document.querySelector("#processing-progress");\nconst progressFill = document.querySelector("#progress-fill");\nconst progressLabel = document.querySelector("#progress-label");
 const operationSelect = document.querySelector("#video-operation");
 const resolutionSelect = document.querySelector("#video-resolution");
 let uploadedMediaId = null;
@@ -139,17 +139,24 @@ processButton.addEventListener("click", async () => {
     return;
   }
   processButton.disabled = true;
-  processButton.querySelector(".button-label").textContent = "Processing…";
-  showProcessStatus("FFmpeg is processing your video. This can take a few minutes.");
+  processButton.querySelector(".button-label").textContent = "Queued…";
+  fileDownloadLink.hidden = true;
+  setProcessingProgress(0);
+  showProcessStatus("Preparing background processing job.");
   try {
     const params = new URLSearchParams({ operation: operationSelect.value, resolution: resolutionSelect.value });
     const response = await fetch(`${API_BASE}/api/v1/media/${uploadedMediaId}/process?${params}`, { method: "POST" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Processing failed");
+    const queued = await response.json();
+    if (!response.ok) throw new Error(typeof queued.detail === "string" ? queued.detail : "Could not start processing");
+    const result = await pollProcessingJob(queued.job_id);
     fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    const original = formatBytes(result.original_size_bytes);
+    const processed = formatBytes(result.size_bytes);
+    const change = result.size_change_bytes;
+    const comparison = change <= 0 ? ` — saved ${formatBytes(Math.abs(change))}` : ` — increased by ${formatBytes(change)`;
     fileDownloadLink.textContent = `Download processed MP4 (${result.operation}, ${result.resolution}) ↓`;
     fileDownloadLink.hidden = false;
-    showProcessStatus("Processing complete! Your MP4 is ready to download.", "success");
+    showProcessStatus(`Done! Original: ${original} · Processed: ${processed}${comparison}.`, "success");
   } catch (error) {
     showProcessStatus(error.message || "Processing failed. Try another preset.", "error");
   } finally {
