@@ -3,6 +3,7 @@ import time
 import uuid
 import shutil
 import subprocess
+import threading
 from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,6 +22,7 @@ MEDIA_TTL_SECONDS = int(os.getenv("MEDIA_TTL_SECONDS", "3600"))
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", "/tmp/tikdownload-media"))
 request_times: dict[str, deque[float]] = defaultdict(deque)
 media_records: dict[str, dict] = {}
+processing_jobs: dict[str, dict] = {}
 
 app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION)
 allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5500").split(",")
@@ -126,9 +128,58 @@ async def upload_authorized_video(file: UploadFile = File(...)):
     media_records[media_id] = {"path": str(destination), "filename": filename, "size": size, "content_type": file.content_type, "expires_at": expires}
     return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Your authorized video file is ready for download."}
 
-@app.post("/api/v1/media/{media_id}/process")
+def _probe_duration(path: str) -> float | None:
+    probe = shutil.which("ffprobe")
+    if not probe:
+        return None
+    try:
+        result = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path], capture_output=True, text=True, timeout=20, check=False)
+        return float(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else None
+    except Exception:
+        return None
+
+def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: Path, command: list[str], operation: str, resolution: str):
+    job = processing_jobs[job_id]
+    job["status"] = "running"
+    job["message"] = "FFmpeg is processing your video."
+    duration = _probe_duration(source["path"])
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        last_time = 0.0
+        for line in process.stdout or []:
+            line = line.strip()
+            if line.startswith("out_time_ms="):
+                try:
+                    last_time = int(line.split("=", 1)[1]) / 1_000_000
+                    if duration and duration > 0:
+                        job["progress"] = min(99, max(1, int(last_time / duration * 100)))
+                except (ValueError, IndexError):
+                    pass
+            elif line == "progress=end":
+                job["progress"] = 99
+        return_code = process.wait(timeout=900)
+        if return_code != 0 or not output_path.exists() or output_path.stat().st_size == 0:
+            output_path.unlink(missing_ok=True)
+            job.update(status="failed", progress=0, message="Video processing failed. Try another video or preset.")
+            return
+        expires = time.time() + MEDIA_TTL_SECONDS
+        output_size = output_path.stat().st_size
+        media_records[output_id] = {"path": str(output_path), "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
+        job.update(status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=media_records[output_id]["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, operation=operation, resolution=resolution, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except Exception:
+            pass
+        output_path.unlink(missing_ok=True)
+        job.update(status="failed", progress=0, message="Video processing took too long.")
+    except Exception:
+        output_path.unlink(missing_ok=True)
+        job.update(status="failed", progress=0, message="Video processing failed unexpectedly.")
+
+@app.post("/api/v1/media/{media_id}/process", status_code=202)
 def process_uploaded_video(media_id: str, operation: str = "convert", resolution: str = "keep"):
-    """Convert authorized uploaded media to MP4 or compress it with FFmpeg."""
+    """Queue authorized uploaded media conversion/compression as a background job."""
     _cleanup_expired_media()
     source = media_records.get(media_id)
     if not source:
@@ -140,34 +191,26 @@ def process_uploaded_video(media_id: str, operation: str = "convert", resolution
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
+    job_id = uuid.uuid4().hex
     output_id = uuid.uuid4().hex
     output_path = MEDIA_DIR / f"{output_id}.mp4"
-    command = [ffmpeg, "-y", "-i", source["path"], "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
-    if operation == "compress":
-        command += ["-crf", "28"]
-    else:
-        command += ["-crf", "23"]
+    command = [ffmpeg, "-y", "-i", source["path"], "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
+    command += ["-crf", "28" if operation == "compress" else "23"]
     if resolution != "keep":
-        height = int(resolution)
-        command += ["-vf", f"scale=-2:{height}:force_original_aspect_ratio=decrease"]
+        command += ["-vf", f"scale=-2:{int(resolution)}:force_original_aspect_ratio=decrease"]
     command += [str(output_path)]
-    try:
-        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
-        if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
-            output_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=422, detail="Video processing failed. Try a different video or preset.")
-    except subprocess.TimeoutExpired:
-        output_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=504, detail="Video processing took too long.")
-    except HTTPException:
-        raise
-    except Exception:
-        output_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Video processing failed.")
-    expires = time.time() + MEDIA_TTL_SECONDS
-    media_records[output_id] = {"path": str(output_path), "filename": f"tikdownload-{operation}.mp4", "size": output_path.stat().st_size, "content_type": "video/mp4", "expires_at": expires}
-    return {"id": output_id, "status": "ready", "operation": operation, "resolution": resolution, "filename": media_records[output_id]["filename"], "size_bytes": media_records[output_id]["size"], "download_url": f"/api/v1/media/{output_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS}
+    processing_jobs[job_id] = {"id": job_id, "status": "queued", "progress": 0, "message": "Job queued.", "created_at": time.time(), "media_id": media_id, "operation": operation, "resolution": resolution}
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    thread = threading.Thread(target=_run_processing_job, args=(job_id, source.copy(), output_id, output_path, command, operation, resolution), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": "queued", "progress": 0, "message": "Processing job queued.", "status_url": f"/api/v1/jobs/{job_id}"}
+
+@app.get("/api/v1/jobs/{job_id}")
+def get_processing_job(job_id: str):
+    job = processing_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Processing job not found.")
+    return {key: value for key, value in job.items() if key not in {"created_at", "media_id"}}
 
 @app.get("/api/v1/media/{media_id}/download")
 def download_uploaded_video(media_id: str):
