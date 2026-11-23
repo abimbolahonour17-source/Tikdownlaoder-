@@ -55,6 +55,14 @@
             <input id="video-file" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" />
             <button type="button" class="download-button upload-button" id="upload-button"><span class="button-label">Upload and prepare download</span><span class="button-arrow" aria-hidden="true">↓</span></button>
             <div class="status-message" id="upload-status" role="status" aria-live="polite"></div>
+            <div class="processing-options">
+              <label class="input-label" for="video-operation">Processing</label>
+              <select id="video-operation"><option value="convert">Convert to MP4</option><option value="compress">Compress video</option></select>
+              <label class="input-label" for="video-resolution">Resolution</label>
+              <select id="video-resolution"><option value="keep">Keep original resolution</option><option value="1080">1080p</option><option value="720" selected>720p</option><option value="480">480p</option></select>
+              <button type="button" class="download-button process-button" id="process-button" disabled><span class="button-label">Process video</span><span class="button-arrow">⚙</span></button>
+            </div>
+            <div class="status-message" id="process-status" role="status" aria-live="polite"></div>
             <a id="file-download-link" class="text-link upload-result" hidden download>Download your video <span>↓</span></a>
             <p class="upload-help">Uploads are temporary and expire after one hour. Only upload videos you own or are authorized to use.</p>
           </div>
