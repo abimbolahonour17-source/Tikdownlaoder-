@@ -54,6 +54,21 @@ Provider docs: https://developers.getinsaver.com/tiktok-downloader-api
 
 This adapter works with MinIO locally and can be configured for Cloudflare R2 or AWS S3. Media objects are stored under `media/` keys. Download responses temporarily localize an object before serving it, and workers localize source files before FFmpeg processing and upload completed output back to storage.
 
+### Cloudflare R2 configuration
+
+Create an R2 bucket and an API token scoped to Object Read & Write for that bucket. Set these in `.env` (and set `DATABASE_URL` if using a managed PostgreSQL service):
+
+```env
+S3_BUCKET=your-bucket
+S3_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+S3_REGION=auto
+S3_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
+S3_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
+DATABASE_URL=<managed-postgresql-connection-string>
+```
+
+The Compose API and worker use these same environment variables. The local MinIO service and initializer still start in Compose but are not the media destination when the R2 endpoint is configured. R2 uses an S3-compatible API; refer to Cloudflare's setup guide for creating buckets, credentials, and endpoint URLs.
+
 **Important:** existing SQLite records/media are not automatically migrated to PostgreSQL/object storage. Back up and migrate any data you need before switching production settings.
 
 ## API endpoints
