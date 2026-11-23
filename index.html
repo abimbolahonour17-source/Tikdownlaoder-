@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#10111a" />
+  <meta name="description" content="TikDownload makes saving videos you have permission to download simple. Paste a link to get started." />
+  <title>TikDownload — Save videos. Keep it simple.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#" aria-label="TikDownload home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14.4 3.2v11.2a4.1 4.1 0 1 1-3.4-4.05V7.2a7.5 7.5 0 1 0 6.9 7.45V8.4a9.1 9.1 0 0 0 3.8 1.05V6.1a6.7 6.7 0 0 1-4.1-2.9h-3.2Z"/></svg></span>
+        <span>Tik<span class="brand-accent">Download</span></span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="header-cta" href="#downloader">Get started <span aria-hidden="true">↗</span></a>
+      <button class="menu-toggle" aria-label="Open navigation" aria-expanded="false"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="downloader">
+      <div class="hero-orb orb-one"></div><div class="hero-orb orb-two"></div>
+      <div class="container hero-content">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> Your video, just a link away</div>
+        <h1>Save videos.<br><span class="gradient-text">Keep it simple.</span></h1>
+        <p class="hero-subtitle">A simple way to save videos you have permission to download.<br class="desktop-only"> No fuss, just paste your link and go.</p>
+        <div class="download-card">
+          <form id="download-form" novalidate>
+            <label class="input-label" for="video-url">Video link</label>
+            <div class="input-wrap">
+              <span class="link-icon" aria-hidden="true">↗</span>
+              <input id="video-url" name="video-url" type="url" inputmode="url" autocomplete="off" placeholder="Paste TikTok video link here…" aria-describedby="url-help url-status" />
+              <button type="button" class="paste-button" id="paste-button">Paste <span>▣</span></button>
+            </div>
+            <p class="input-help" id="url-help">Paste a public TikTok video link to begin.</p>
+            <button class="download-button" id="download-button" type="submit">
+              <span class="button-label">Check link</span><span class="button-arrow" aria-hidden="true">↗</span>
+            </button>
+            <div class="status-message" id="url-status" role="status" aria-live="polite"></div>
+          </form>
+          <div class="card-note"><span class="shield-icon">✦</span> Use links to content you own or have permission to save.</div>
+        </div>
+        <div class="hero-trust"><span>✧</span> Easy to use <span class="trust-divider">·</span> Works on mobile <span class="trust-divider">·</span> No account needed</div>
+      </div>
+      <div class="hero-bottom-shape"></div>
+    </section>
+
+    <section class="steps-section section" id="how-it-works">
+      <div class="container">
+        <div class="section-heading">
+          <div class="eyebrow">Three steps. That's it.</div>
+          <h2>From link to <span class="gradient-text">saved video.</span></h2>
+          <p>Getting started is refreshingly straightforward.</p>
+        </div>
+        <div class="steps-grid">
+          <article class="step-card"><div class="step-number">01 <span>↗</span></div><div class="step-icon copy-icon">▣</div><h3>Copy the link</h3><p>Find the video you want to save and copy its share link.</p></article>
+          <article class="step-card step-card-featured"><div class="step-number">02 <span>↗</span></div><div class="step-icon paste-icon">⌁</div><h3>Paste it here</h3><p>Drop the link into the box above. We'll check that it's supported.</p></article>
+          <article class="step-card"><div class="step-number">03 <span>↗</span></div><div class="step-icon save-icon">↓</div><h3>Save your video</h3><p>When a permitted download is available, save it to your device.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="features-section section" id="features">
+      <div class="container feature-layout">
+        <div class="feature-intro">
+          <div class="eyebrow">Made to be easy</div>
+          <h2>Less clutter.<br><span class="gradient-text">More doing.</span></h2>
+          <p>We keep the experience focused on what matters: a clean interface, helpful feedback, and a smooth experience on the device you're using.</p>
+          <a href="#downloader" class="text-link">Try it out <span>↗</span></a>
+        </div>
+        <div class="feature-list">
+          <article class="feature-item"><div class="feature-icon speed-icon">ϟ</div><div><h3>Simple workflow</h3><p>One link and a clear next step. No confusing menus.</p></div></article>
+          <article class="feature-item"><div class="feature-icon device-icon">▣</div><div><h3>Fits your screen</h3><p>A responsive layout for phones, tablets, and desktops.</p></div></article>
+          <article class="feature-item"><div class="feature-icon privacy-icon">◈</div><div><h3>Privacy mindful</h3><p>We aim to minimize the data needed to use the service.</p></div></article>
+          <article class="feature-item"><div class="feature-icon free-icon">✳</div><div><h3>Clear and accessible</h3><p>Readable text, keyboard-friendly controls, and useful messages.</p></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="faq-section section" id="faq">
+      <div class="container faq-layout">
+        <div class="section-heading faq-heading">
+          <div class="eyebrow">Questions, answered</div>
+          <h2>Good to <span class="gradient-text">know.</span></h2>
+          <p>Quick answers to the things people often ask.</p>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item"><summary>How do I use TikDownload?<span class="faq-plus"></span></summary><p>Copy a public TikTok video link, paste it into the input above, and select Check link. Download availability depends on the supported retrieval method.</p></details>
+          <details class="faq-item"><summary>Is TikDownload free to use?<span class="faq-plus"></span></summary><p>The website prototype is free to use. Any future limits or costs will be clearly disclosed.</p></details>
+          <details class="faq-item"><summary>Can I download any TikTok video?<span class="faq-plus"></span></summary><p>No. Only content that is accessible through a supported method and that you have the right or permission to save should be downloaded. Private videos and restricted content are not supported.</p></details>
+          <details class="faq-item"><summary>Does this work on my phone?<span class="faq-plus"></span></summary><p>Yes, the site is designed to work on mobile browsers as well as desktop browsers.</p></details>
+          <details class="faq-item"><summary>Do you store the links I paste?<span class="faq-plus"></span></summary><p>This prototype does not send links to a server. A download service is not connected yet.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing-section">
+      <div class="container closing-content"><div class="closing-spark">✦</div><h2>Ready when <span class="gradient-text">you are.</span></h2><p>Keep your workflow simple. Start with a link.</p><a class="download-button closing-button" href="#downloader">Paste a video link <span class="button-arrow">↗</span></a></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-top"><a class="brand" href="#"><span class="brand-mark" aria-hidden="true">↗</span><span>Tik<span class="brand-accent">Download</span></span></a><p>Simple tools. Clear experience.</p><a href="#downloader" class="footer-top-link">Back to top ↑</a></div>
+    <div class="container footer-bottom"><span>© <span id="year"></span> TikDownload. All rights reserved.</span><div class="footer-links"><a href="#faq">FAQ</a><a href="#features">About</a><a href="mailto:hello@tikdownload.example">Contact</a></div><span class="footer-disclaimer">Only save videos you have permission to download.</span></div>
+  </footer>
+  <script src="./script.js"></script>
+</body>
+</html>
