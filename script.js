@@ -16,7 +16,8 @@ const menuButton = document.querySelector(".menu-toggle");
 const nav = document.querySelector(".nav-links");
 
 document.querySelector("#year").textContent = new Date().getFullYear();
-const API_BASE = (window.TIKDOWNLOAD_API_BASE || "").replace(/\/$/, "");
+const defaultApiBase = ["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://127.0.0.1:8000" : window.location.origin;
+const API_BASE = (window.TIKDOWNLOAD_API_BASE || defaultApiBase).replace(/\/$/, "");
 const MAX_UPLOAD_MB = 80;
 
 function showStatus(message, kind = "") {
