@@ -8,6 +8,8 @@ const nav = document.querySelector(".nav-links");
 
 document.querySelector("#year").textContent = new Date().getFullYear();
 
+const API_BASE = (window.TIKDOWNLOAD_API_BASE || "").replace(/\/$/, "");
+
 function showStatus(message, kind = "") {
   status.textContent = message;
   status.className = "status-message" + (kind ? " " + kind : "");
@@ -16,9 +18,9 @@ function showStatus(message, kind = "") {
 function isTikTokUrl(value) {
   try {
     const parsed = new URL(value);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    const allowedHosts = ["tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"];
-    return parsed.protocol === "https:" && allowedHosts.some((allowed) => host === allowed || host.endsWith("." + allowed));
+    const host = parsed.hostname.toLowerCase();
+    const allowedHosts = ["tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"];
+    return parsed.protocol === "https:" && allowedHosts.includes(host) && parsed.pathname.length > 1;
   } catch {
     return false;
   }
@@ -38,11 +40,11 @@ pasteButton.addEventListener("click", async () => {
     showStatus("Link pasted. Check it before continuing.", "success");
   } catch {
     input.focus();
-    showStatus("Clipboard access isn't available. Paste your link into the field manually.");
+    showStatus("Clipboard access isn't available. Paste your link into the field manually");
   }
 });
 
-form.addEventListener("submit", (event) => {
+form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const value = input.value.trim();
   if (!value) {
@@ -51,13 +53,34 @@ form.addEventListener("submit", (event) => {
     return;
   }
   if (!isTikTokUrl(value)) {
-    showStatus("Please enter a valid HTTPS TikTok link.", "error");
+    showStatus("Please enter a valid HTTPS TikTok video link.", "error");
     input.focus();
     return;
   }
 
-  // The frontend is ready for API integration. No download endpoint is configured yet.
-  showStatus("Link looks valid. Video processing is not connected yet—this is the website preview.", "success");
+  submitButton.disabled = true;
+  submitButton.querySelector(".button-label").textContent = "Checking link…";
+  showStatus("Checking link with TikDownload API…");
+
+  try {
+    const response = await fetch(`${API_BASE}/api/v1/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: value }),
+    });
+    if (!response.ok) throw new Error("API request failed");
+    const result = await response.json();
+    if (result.valid) {
+      showStatus("Link validated. Video downloading is not enabled yet.", "success");
+    } else {
+      showStatus(result.message || "This link is not supported.", "error");
+    }
+  } catch {
+    showStatus("TikDownload API is unavailable. The link format looks okay, but server validation couldn't be reached.", "error");
+  } finally {
+    submitButton.disabled = false;
+    submitButton.querySelector(".button-label").textContent = "Check link";
+  }
 });
 
 menuButton.addEventListener("click", () => {
