@@ -16,7 +16,6 @@ const menuButton = document.querySelector(".menu-toggle");
 const nav = document.querySelector(".nav-links");
 
 document.querySelector("#year").textContent = new Date().getFullYear();
-
 const API_BASE = (window.TIKDOWNLOAD_API_BASE || "").replace(/\/$/, "");
 const MAX_UPLOAD_MB = 80;
 
@@ -24,25 +23,25 @@ function showStatus(message, kind = "") {
   status.textContent = message;
   status.className = "status-message" + (kind ? " " + kind : "");
 }
-
-function showProcessStatus(message, kind = "") {\n  processStatus.textContent = message;\n  processStatus.className = "status-message" + (kind ? " " + kind : "");\n}\n\nfunction showUploadStatus(message, kind = "") {
+function showUploadStatus(message, kind = "") {
   uploadStatus.textContent = message;
   uploadStatus.className = "status-message" + (kind ? " " + kind : "");
 }
-
+function showProcessStatus(message, kind = "") {
+  processStatus.textContent = message;
+  processStatus.className = "status-message" + (kind ? " " + kind : "");
+}
 function isTikTokUrl(value) {
   try {
     const parsed = new URL(value);
-    const host = parsed.hostname.toLowerCase();
     const allowedHosts = ["tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"];
-    return parsed.protocol === "https:" && allowedHosts.includes(host) && parsed.pathname.length > 1;
+    return parsed.protocol === "https:" && allowedHosts.includes(parsed.hostname.toLowerCase()) && parsed.pathname.length > 1;
   } catch {
     return false;
   }
 }
 
 input.addEventListener("input", () => showStatus(""));
-
 pasteButton.addEventListener("click", async () => {
   try {
     const text = await navigator.clipboard.readText();
@@ -55,7 +54,7 @@ pasteButton.addEventListener("click", async () => {
     showStatus("Link pasted. Check it before continuing.", "success");
   } catch {
     input.focus();
-    showStatus("Clipboard access isn't available. Paste your link into the field manually");
+    showStatus("Clipboard access isn't available. Paste your link manually.");
   }
 });
 
@@ -72,11 +71,9 @@ form.addEventListener("submit", async (event) => {
     input.focus();
     return;
   }
-
   submitButton.disabled = true;
   submitButton.querySelector(".button-label").textContent = "Checking link…";
   showStatus("Checking link with TikDownload API…");
-
   try {
     const response = await fetch(`${API_BASE}/api/v1/validate`, {
       method: "POST",
@@ -85,13 +82,9 @@ form.addEventListener("submit", async (event) => {
     });
     if (!response.ok) throw new Error("API request failed");
     const result = await response.json();
-    if (result.valid) {
-      showStatus("Link format validated. TikTok retrieval is not connected; use the file-upload tool below for videos you have.", "success");
-    } else {
-      showStatus(result.message || "This link is not supported.", "error");
-    }
+    showStatus(result.valid ? "Link format validated. TikTok retrieval is not connected yet." : (result.message || "This link is not supported."), result.valid ? "success" : "error");
   } catch {
-    showStatus("TikDownload API is unavailable. The link format looks okay, but server validation couldn't be reached.", "error");
+    showStatus("TikDownload API is unavailable. Server validation couldn't be reached.", "error");
   } finally {
     submitButton.disabled = false;
     submitButton.querySelector(".button-label").textContent = "Check link";
@@ -101,6 +94,8 @@ form.addEventListener("submit", async (event) => {
 uploadButton.addEventListener("click", async () => {
   const file = fileInput.files?.[0];
   fileDownloadLink.hidden = true;
+  processButton.disabled = true;
+  uploadedMediaId = null;
   if (!file) {
     showUploadStatus("Choose a video file first.", "error");
     return;
@@ -116,19 +111,21 @@ uploadButton.addEventListener("click", async () => {
   }
   uploadButton.disabled = true;
   uploadButton.querySelector(".button-label").textContent = "Uploading…";
-  showUploadStatus("Uploading your file securely. Please keep this page open.");
+  showUploadStatus("Uploading your video. Keep this page open.");
   try {
     const data = new FormData();
     data.append("file", file);
     const response = await fetch(`${API_BASE}/api/v1/media/upload`, { method: "POST", body: data });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || "Upload failed");
+    if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Upload failed");
+    uploadedMediaId = result.id;
+    processButton.disabled = false;
     fileDownloadLink.href = `${API_BASE}${result.download_url}`;
-    fileDownloadLink.textContent = "Download your video ↓";
+    fileDownloadLink.textContent = "Download original upload ↓";
     fileDownloadLink.hidden = false;
-    showUploadStatus("Your video is ready. Download it using the link below.", "success");
+    showUploadStatus("Upload complete. Choose conversion or compression options.", "success");
   } catch (error) {
-    showUploadStatus(typeof error.message === "string" ? error.message : "Upload failed. Please try again.", "error");
+    showUploadStatus(error.message || "Upload failed. Please try again.", "error");
   } finally {
     uploadButton.disabled = false;
     uploadButton.querySelector(".button-label").textContent = "Upload and prepare download";
@@ -145,15 +142,15 @@ processButton.addEventListener("click", async () => {
   showProcessStatus("FFmpeg is processing your video. This can take a few minutes.");
   try {
     const params = new URLSearchParams({ operation: operationSelect.value, resolution: resolutionSelect.value });
-    const response = await fetch(`${API_BASE}/api/v1/media/${uploadedMediaId}/process?${params.toString()}`, { method: "POST" });
+    const response = await fetch(`${API_BASE}/api/v1/media/${uploadedMediaId}/process?${params}`, { method: "POST" });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || "Processing failed");
+    if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Processing failed");
     fileDownloadLink.href = `${API_BASE}${result.download_url}`;
-    fileDownloadLink.textContent = `Download processed video (${result.operation}, ${result.resolution}p) ↓`;
+    fileDownloadLink.textContent = `Download processed MP4 (${result.operation}, ${result.resolution}) ↓`;
     fileDownloadLink.hidden = false;
     showProcessStatus("Processing complete! Your MP4 is ready to download.", "success");
   } catch (error) {
-    showProcessStatus(typeof error.message === "string" ? error.message : "Processing failed. Try another preset.", "error");
+    showProcessStatus(error.message || "Processing failed. Try another preset.", "error");
   } finally {
     processButton.disabled = false;
     processButton.querySelector(".button-label").textContent = "Process video";
@@ -166,7 +163,6 @@ menuButton.addEventListener("click", () => {
   document.body.classList.toggle("mobile-nav-open", !opened);
   menuButton.setAttribute("aria-label", opened ? "Open navigation" : "Close navigation");
 });
-
 nav.querySelectorAll("a").forEach((link) => {
   link.addEventListener("click", () => {
     document.body.classList.remove("mobile-nav-open");
