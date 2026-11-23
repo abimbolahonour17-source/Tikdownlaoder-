@@ -80,3 +80,16 @@ def presigned_download_url(stored_path, filename, expires_seconds=3600):
         },
         ExpiresIn=max(60, min(int(expires_seconds), 3600)),
     )
+
+
+def presigned_download_url(stored_path, filename, expires_seconds=3600):
+    """Return a temporary direct S3 download URL when configured."""
+    if not S3_ENABLED or not stored_path.startswith("s3://"):
+        return None
+    parsed = urlparse(stored_path)
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": parsed.netloc, "Key": parsed.path.lstrip("/"),
+               "ResponseContentDisposition": f'attachment; filename="{Path(filename).name}"'},
+        ExpiresIn=max(60, min(int(expires_seconds), 604800)),
+    )
