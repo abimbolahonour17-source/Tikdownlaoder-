@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from . import persistence
+from . import persistence, storage
 
 APP_VERSION = "0.2.0"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
@@ -121,25 +121,25 @@ def download_video(body: LinkRequest):
     normalized = validate_tiktok_url(body.url)
     if not normalized:
         raise HTTPException(status_code=400, detail="Enter a valid HTTPS TikTok video link.")
-    provider_url = os.getenv("TIKTOK_RETRIEVAL_API_URL", "").strip()
-    provider_token = os.getenv("TIKTOK_RETRIEVAL_API_TOKEN", "").strip()
-    if not provider_url or not provider_token:
-        raise HTTPException(status_code=501, detail={"code": "DOWNLOAD_PROVIDER_NOT_CONFIGURED", "message": "URL retrieval requires a configured, authorized media provider. TikDownload does not scrape TikTok or bypass access controls."})
+    provider_token = os.getenv("GETINSAVER_API_KEY", "").strip()
+    provider_url = "https://developers.getinsaver.com/v1/resolve"
+    if not provider_token:
+        raise HTTPException(status_code=503, detail={"code": "RETRIEVAL_PROVIDER_KEY_MISSING", "message": "GetInSaver API key is not configured. Add GETINSAVER_API_KEY to the server environment."})
     import httpx
+    temp_download = None
     try:
-        with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=False) as client:
-            provider_response = client.post(provider_url, json={"url": normalized}, headers={"Authorization": f"Bearer {provider_token}", "Accept": "application/json"})
+        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0), follow_redirects=False) as client:
+            provider_response = client.post(provider_url, json={"service": "tiktok", "url": normalized, "max_results": 1}, headers={"Authorization": f"Bearer {provider_token}", "Accept": "application/json"})
             provider_response.raise_for_status()
             provider_data = provider_response.json()
-            media_url = provider_data.get("download_url")
+            items = provider_data.get("items") if provider_data.get("ok") else None
+            media_item = next((item for item in (items or []) if item.get("type") == "video" and isinstance(item.get("url"), str)), None)
+            media_url = media_item.get("url") if media_item else None
             if not isinstance(media_url, str) or not _is_public_https_media_url(media_url):
-                raise HTTPException(status_code=502, detail="Provider returned an unsafe or invalid media URL.")
-            filename = Path(str(provider_data.get("filename") or "tiktok-video.mp4")).name
-            if not filename.lower().endswith((".mp4", ".webm", ".mov")):
-                filename = "tiktok-video.mp4"
+                raise HTTPException(status_code=502, detail="Provider returned no safe video media URL for this TikTok link.")
+            filename = "tiktok-video.mp4"
             media_id = uuid.uuid4().hex
-            MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-            destination = MEDIA_DIR / f"{media_id}{Path(filename).suffix.lower()}"
+            temp_download = storage.temporary_path(".mp4")
             size = 0
             with client.stream("GET", media_url, follow_redirects=False) as stream:
                 stream.raise_for_status()
@@ -147,21 +147,25 @@ def download_video(body: LinkRequest):
                 if not content_type.startswith("video/"):
                     raise HTTPException(status_code=502, detail="Provider media endpoint did not return a video.")
                 limit = MAX_UPLOAD_MB * 1024 * 1024
-                with destination.open("wb") as output:
+                with temp_download.open("wb") as output:
                     for chunk in stream.iter_bytes(1024 * 1024):
                         size += len(chunk)
                         if size > limit:
                             raise HTTPException(status_code=413, detail=f"Retrieved video exceeds the {MAX_UPLOAD_MB} MB limit.")
                         output.write(chunk)
+            stored_path = storage.store_file(temp_download, f"media/{media_id}.mp4")
             expires = time.time() + MEDIA_TTL_SECONDS
-            record = {"id": media_id, "path": str(destination), "filename": filename, "size": size, "content_type": content_type, "expires_at": expires}
+            record = {"id": media_id, "path": stored_path, "filename": filename, "size": size, "content_type": content_type, "expires_at": expires}
             media_records[media_id] = record
             persistence.save_media(media_id, record)
-            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieval completed through the configured provider."}
+            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
     except HTTPException:
         raise
     except Exception as error:
-        raise HTTPException(status_code=502, detail="Configured media provider failed to retrieve the video.") from error
+        raise HTTPException(status_code=502, detail="GetInSaver failed to resolve or retrieve the TikTok video. Please try again later.") from error
+    finally:
+        if temp_download:
+            temp_download.unlink(missing_ok=True)
 
 @app.post("/api/v1/media/upload")
 async def upload_authorized_video(file: UploadFile = File(...)):
@@ -175,9 +179,8 @@ async def upload_authorized_video(file: UploadFile = File(...)):
         await file.close()
         raise HTTPException(status_code=415, detail="Upload MP4, WebM, or MOV video files only.")
     limit = MAX_UPLOAD_MB * 1024 * 1024
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     media_id = uuid.uuid4().hex
-    destination = MEDIA_DIR / f"{media_id}{ext}"
+    destination = storage.temporary_path(ext)
     size = 0
     header = b""
     try:
@@ -198,8 +201,9 @@ async def upload_authorized_video(file: UploadFile = File(...)):
     if not valid_signature or size == 0:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=415, detail="The uploaded file does not appear to be a supported video.")
+    stored_path = storage.store_file(destination, f"media/{media_id}{ext}")
     expires = time.time() + MEDIA_TTL_SECONDS
-    record = {"id": media_id, "path": str(destination), "filename": filename, "size": size, "content_type": file.content_type, "expires_at": expires}
+    record = {"id": media_id, "path": stored_path, "filename": filename, "size": size, "content_type": file.content_type, "expires_at": expires}
     media_records[media_id] = record
     persistence.save_media(media_id, record)
     return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Your authorized video file is ready for download."}
@@ -281,7 +285,7 @@ def process_uploaded_video(media_id: str, operation: str = "convert", resolution
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
     job_id = uuid.uuid4().hex
     output_id = uuid.uuid4().hex
-    output_path = MEDIA_DIR / f"{output_id}.mp4"
+    output_path = storage.temporary_path(".mp4")
     job = {"id": job_id, "status": "queued", "progress": 0, "message": "Job queued.", "created_at": time.time(), "media_id": media_id, "operation": operation, "resolution": resolution}
     processing_jobs[job_id] = job
     persistence.create_job(job)
@@ -331,8 +335,10 @@ def download_uploaded_video(media_id: str):
     record = media_records.get(media_id) or persistence.get_media(media_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found or its temporary link has expired.")
-    path = Path(record["path"])
-    if not path.exists():
+    if not storage.exists(record["path"]):
         media_records.pop(media_id, None)
         raise HTTPException(status_code=404, detail="File not found.")
-    return FileResponse(path, media_type=record["content_type"], filename=record["filename"], headers={"Cache-Control": "no-store"})
+    from fastapi.background import BackgroundTask
+    temporary = storage.temporary_path(Path(record["filename"]).suffix)
+    storage.localize(record["path"], temporary)
+    return FileResponse(temporary, media_type=record["content_type"], filename=record["filename"], headers={"Cache-Control": "no-store"}, background=BackgroundTask(temporary.unlink, missing_ok=True))
