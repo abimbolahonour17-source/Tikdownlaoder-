@@ -1,6 +1,8 @@
 import os
 import time
 import uuid
+import shutil
+import subprocess
 from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import urlparse
@@ -123,6 +125,49 @@ async def upload_authorized_video(file: UploadFile = File(...)):
     expires = time.time() + MEDIA_TTL_SECONDS
     media_records[media_id] = {"path": str(destination), "filename": filename, "size": size, "content_type": file.content_type, "expires_at": expires}
     return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Your authorized video file is ready for download."}
+
+@app.post("/api/v1/media/{media_id}/process")
+def process_uploaded_video(media_id: str, operation: str = "convert", resolution: str = "keep"):
+    """Convert authorized uploaded media to MP4 or compress it with FFmpeg."""
+    _cleanup_expired_media()
+    source = media_records.get(media_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Upload not found or expired.")
+    if operation not in {"convert", "compress"}:
+        raise HTTPException(status_code=400, detail="Choose convert or compress.")
+    if resolution not in {"keep", "1080", "720", "480"}:
+        raise HTTPException(status_code=400, detail="Unsupported resolution preset.")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
+    output_id = uuid.uuid4().hex
+    output_path = MEDIA_DIR / f"{output_id}.mp4"
+    command = [ffmpeg, "-y", "-i", source["path"], "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
+    if operation == "compress":
+        command += ["-crf", "28"]
+    else:
+        command += ["-crf", "23"]
+    if resolution != "keep":
+        height = int(resolution)
+        command += ["-vf", f"scale=-2:{height}:force_original_aspect_ratio=decrease"]
+    command += [str(output_path)]
+    try:
+        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
+        if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
+            output_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail="Video processing failed. Try a different video or preset.")
+    except subprocess.TimeoutExpired:
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=504, detail="Video processing took too long.")
+    except HTTPException:
+        raise
+    except Exception:
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Video processing failed.")
+    expires = time.time() + MEDIA_TTL_SECONDS
+    media_records[output_id] = {"path": str(output_path), "filename": f"tikdownload-{operation}.mp4", "size": output_path.stat().st_size, "content_type": "video/mp4", "expires_at": expires}
+    return {"id": output_id, "status": "ready", "operation": operation, "resolution": resolution, "filename": media_records[output_id]["filename"], "size_bytes": media_records[output_id]["size"], "download_url": f"/api/v1/media/{output_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS}
 
 @app.get("/api/v1/media/{media_id}/download")
 def download_uploaded_video(media_id: str):
