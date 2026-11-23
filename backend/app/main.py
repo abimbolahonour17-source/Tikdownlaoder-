@@ -212,7 +212,7 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
                 try:
                     last_time = int(line.split("=", 1)[1]) / 1_000_000
                     if duration and duration > 0:
-                        job["progress"] = min(99, max(1, int(last_time / duration * 100)))
+                        job["progress"] = min(99, max(1, int(last_time / duration * 100)))\n                        persistence.update_job(job_id, progress=job["progress"])
                 except (ValueError, IndexError):
                     pass
             elif line == "progress=end":
