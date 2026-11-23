@@ -10,3 +10,12 @@
 @media(max-width:850px){.feature-layout{gap:45px}.faq-layout{gap:45px}.hero{padding:92px 0 72px}.section{padding:80px 0}}
 @media(max-width:650px){.container{width:min(100% - 34px,1120px)}.header-inner{height:66px}.nav-links{display:none;position:absolute;top:66px;left:0;right:0;padding:18px 22px;background:#151621;border-bottom:1px solid var(--line);flex-direction:column;gap:16px}.menu-toggle{display:block}.header-cta{padding:9px 12px;font-size:12px}.hero{padding:72px 0 62px}.hero h1{font-size:51px;letter-spacing:-2.7px}.hero-subtitle{font-size:14px;padding:0 4px}.desktop-only{display:none}.download-card{padding:16px;border-radius:15px}.input-wrap{height:54px;padding:0 10px}.input-wrap input{font-size:13px}.paste-button{padding:7px 8px}.hero-trust{font-size:10px}.trust-divider{margin:0 7px}.section{padding:66px 0}.section-heading h2,.feature-intro h2,.faq-heading h2,.closing-content h2{font-size:36px;letter-spacing:-1.4px}.section-heading{margin-bottom:30px}.steps-grid{grid-template-columns:1fr;gap:12px}.step-card{min-height:0;padding:20px}.step-icon{margin:16px 0 12px}.feature-layout,.faq-layout{grid-template-columns:1fr;gap:38px}.feature-intro h2{font-size:43px}.feature-list{gap:9px}.feature-item{padding:15px}.faq-heading{margin:0}.closing-section{padding:55px 0}.footer-top{flex-wrap:wrap;gap:12px}.footer-top p{width:100%;order:3}.footer-top-link{margin-left:auto}.footer-bottom{align-items:flex-start;flex-wrap:wrap;gap:12px}.footer-links{order:2;width:100%}.footer-disclaimer{order:3;width:100%}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important}}
+
+.authorized-upload{border-top:1px solid rgba(255,255,255,.09);margin-top:22px;padding-top:20px;text-align:left}
+.upload-heading{font-weight:600;font-size:14px;margin:0 0 16px;color:var(--text,#fff)}
+#video-file{display:block;width:100%;margin:8px 0 14px;padding:10px;border:1px solid rgba(255,255,255,.15);border-radius:12px;background:rgba(255,255,255,.035);color:inherit;font:inherit;font-size:12px}
+#video-file::file-selector-button{border:0;border-radius:8px;padding:8px 10px;margin-right:10px;background:rgba(255,255,255,.1);color:inherit;font:inherit;cursor:pointer}
+.upload-button{width:100%;margin-top:2px}
+.upload-help{font-size:11px;line-height:1.5;opacity:.65;margin:12px 0 0}
+.upload-result{display:inline-flex;margin-top:10px;align-items:center;gap:8px}
+.upload-result[hidden]{display:none}
