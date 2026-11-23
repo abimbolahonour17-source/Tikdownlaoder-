@@ -56,7 +56,7 @@ def _cleanup_expired_media():
         media_records[media_id] = record
         if record["expires_at"] <= now:
             try:
-                Path(record["path"]).unlink(missing_ok=True)
+                storage.delete_file(record["path"])
             finally:
                 media_records.pop(media_id, None)
                 persistence.delete_media(media_id)
@@ -252,7 +252,7 @@ def _run_processing_job(job_id: str, source: dict, output_id: str, output_path: 
             return
         expires = time.time() + MEDIA_TTL_SECONDS
         output_size = output_path.stat().st_size
-        record = {"id": output_id, "path": str(output_path), "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
+        stored_output = storage.store_file(output_path, f"media/{output_id}.mp4")\n        record = {"id": output_id, "path": stored_output, "filename": f"tikdownload-{operation}.mp4", "size": output_size, "content_type": "video/mp4", "expires_at": expires}
         media_records[output_id] = record
         persistence.save_media(output_id, record)
         job.update(status="completed", progress=100, message="Processing complete.", output_id=output_id, filename=media_records[output_id]["filename"], size_bytes=output_size, download_url=f"/api/v1/media/{output_id}/download", expires_in_seconds=MEDIA_TTL_SECONDS, operation=operation, resolution=resolution, original_size_bytes=source["size"], size_change_bytes=output_size - source["size"])
