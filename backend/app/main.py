@@ -294,6 +294,20 @@ def get_processing_job(job_id: str):
     job = persistence.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Processing job not found.")
+    if os.getenv("REDIS_URL"):
+        try:
+            from redis import Redis
+            from rq.job import Job as RQJob
+            rq_job = RQJob.fetch(job_id, connection=Redis.from_url(os.getenv("REDIS_URL")))
+            rq_status = rq_job.get_status(refresh=True)
+            if rq_status == "failed":
+                persistence.update_job(job_id, status="failed", progress=0, message="Background worker failed. Please retry.")
+            elif rq_status == "started" and job["status"] != "completed":
+                persistence.update_job(job_id, status="running", message="Worker is processing the video.")
+            job = persistence.get_job(job_id) or job
+        except Exception:
+            # SQLite remains the source of truth for status if Redis is temporarily unavailable.
+            pass
     return {key: value for key, value in job.items() if key not in {"created_at", "media_id"}}
 
 @app.get("/api/v1/media/{media_id}/download")
