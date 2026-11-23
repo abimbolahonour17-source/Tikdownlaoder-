@@ -104,22 +104,28 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   submitButton.disabled = true;
-  submitButton.querySelector(".button-label").textContent = "Checking link…";
-  showStatus("Checking link with TikDownload API…");
+  submitButton.querySelector(".button-label").textContent = "Retrieving…";
+  showStatus("Requesting authorized video retrieval. This may take a moment.");
   try {
-    const response = await fetch(`${API_BASE}/api/v1/validate`, {
+    const response = await fetch(`${API_BASE}/api/v1/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: value }),
     });
-    if (!response.ok) throw new Error("API request failed");
     const result = await response.json();
-    showStatus(result.valid ? "Link format validated. TikTok retrieval is not connected yet." : (result.message || "This link is not supported."), result.valid ? "success" : "error");
-  } catch {
-    showStatus("TikDownload API is unavailable. Server validation couldn't be reached.", "error");
+    if (!response.ok) {
+      const detail = typeof result.detail === "string" ? result.detail : result.detail?.message;
+      throw new Error(detail || "Video retrieval is not available.");
+    }
+    fileDownloadLink.href = `${API_BASE}${result.download_url}`;
+    fileDownloadLink.textContent = `Download ${result.filename || "video"} ↓`;
+    fileDownloadLink.hidden = false;
+    showStatus(`Video ready (${formatBytes(result.size_bytes)}). Download below.`, "success");
+  } catch (error) {
+    showStatus(error.message || "Video retrieval failed. Please try again.", "error");
   } finally {
     submitButton.disabled = false;
-    submitButton.querySelector(".button-label").textContent = "Check link";
+    submitButton.querySelector(".button-label").textContent = "Download video";
   }
 });
 
