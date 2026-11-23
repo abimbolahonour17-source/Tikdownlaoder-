@@ -18,12 +18,6 @@ let uploadedMediaId = null;
 const menuButton = document.querySelector(".menu-toggle");
 const nav = document.querySelector(".nav-links");
 
-// Upload/conversion tools are kept for local development until a durable serverless worker is configured.
-if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-  const uploadPanel = document.querySelector(".authorized-upload");
-  if (uploadPanel) uploadPanel.style.display = "none";
-}
-
 document.querySelector("#year").textContent = new Date().getFullYear();
 const defaultApiBase = ["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://127.0.0.1:8000" : window.location.origin;
 const API_BASE = (window.TIKDOWNLOAD_API_BASE || defaultApiBase).replace(/\/$/, "");
