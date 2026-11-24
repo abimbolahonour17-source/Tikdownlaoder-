@@ -1,8 +1,40 @@
 from io import BytesIO
+from contextlib import contextmanager
+import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def fake_blob_storage(monkeypatch):
+    """Keep API tests deterministic while exercising the Blob storage interface."""
+    import app.main as main
+    objects = {}
+    monkeypatch.delenv("VERCEL", raising=False)
+
+    def store_file(source, key):
+        url = "https://blob.test/" + key
+        objects[url] = source.read_bytes()
+        return url
+
+    def delete_file(url):
+        objects.pop(url, None)
+
+    def exists(url):
+        return url in objects
+
+    @contextmanager
+    def stream_file(url):
+        if url not in objects:
+            raise FileNotFoundError(url)
+        yield BytesIO(objects[url])
+
+    monkeypatch.setattr(main.storage, "store_file", store_file)
+    monkeypatch.setattr(main.storage, "delete_file", delete_file)
+    monkeypatch.setattr(main.storage, "exists", exists)
+    monkeypatch.setattr(main.storage, "stream_file", stream_file)
+    return objects
 
 def test_health():
     response = client.get("/health")
@@ -35,9 +67,10 @@ def test_tiktok_download_uses_getinsaver_provider(monkeypatch, tmp_path):
     import app.main as main
     monkeypatch.setenv("GETINSAVER_API_KEY", "test-key")
     monkeypatch.setattr(main, "_is_public_https_media_url", lambda url: True)
-    monkeypatch.setattr(main.storage, "MEDIA_DIR", tmp_path)
     video_bytes = b"fake-provider-video"
     class ProviderResponse:
+        is_success = True
+        status_code = 200
         def raise_for_status(self): pass
         def json(self):
             return {"ok": True, "items": [{"type": "video", "url": "https://cdn.example/video.mp4"}]}
@@ -145,3 +178,58 @@ def test_provider_media_url_rejects_private_addresses(monkeypatch):
 def test_provider_media_url_requires_https():
     import app.main as main
     assert main._is_public_https_media_url("http://example.com/video.mp4") is False
+
+@pytest.mark.parametrize("url", [
+    "https://www.tiktok.com/@creator/video/123",
+    "https://m.tiktok.com/@creator/video/123",
+    "https://vm.tiktok.com/abc123/",
+    "https://vt.tiktok.com/abc123/",
+    "https://www.tiktok.com/share/video/123",
+    "https://creator.tiktok.com/some/video/123",
+    "www.tiktok.com/@creator/video/123",
+    "tiktok.com/@creator/video/123",
+])
+def test_accepts_tiktok_video_link_formats(url):
+    import app.main as main
+    assert main.validate_tiktok_url(url) is not None
+
+
+def test_rejects_tiktok_domain_suffix_spoofing():
+    import app.main as main
+    assert main.validate_tiktok_url("https://tiktok.com.evil.example/video") is None
+    assert main.validate_tiktok_url("https://not-tiktok.com/video") is None
+
+
+def test_vercel_disables_direct_upload_and_processing(monkeypatch):
+    monkeypatch.setenv("VERCEL", "1")
+    upload = client.post("/api/v1/media/upload", files={"file": ("clip.mp4", BytesIO(b"0000ftypisomdata"), "video/mp4")})
+    assert upload.status_code == 503
+    processed = client.post("/api/v1/media/no-id/process?operation=convert")
+    assert processed.status_code == 503
+
+
+def test_blob_storage_requires_complete_oidc_pair(monkeypatch):
+    import app.storage as storage
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.delenv("VERCEL_BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-test")
+    monkeypatch.delenv("BLOB_STORE_ID", raising=False)
+    with pytest.raises(RuntimeError, match="BLOB_STORE_ID"):
+        storage._blob()
+
+
+def test_blob_storage_accepts_oidc_with_store_id(monkeypatch):
+    import sys
+    import types
+    import app.storage as storage
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.delenv("VERCEL_BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-test")
+    monkeypatch.setenv("BLOB_STORE_ID", "store-test")
+    vercel = types.ModuleType("vercel")
+    blob_module = types.ModuleType("vercel.blob")
+    blob_module.sync = object()
+    vercel.blob = blob_module
+    monkeypatch.setitem(sys.modules, "vercel", vercel)
+    monkeypatch.setitem(sys.modules, "vercel.blob", blob_module)
+    assert storage._blob() is blob_module.sync

@@ -1,63 +1,54 @@
+"""Vercel Blob-backed media storage. No local or S3 fallback is permitted."""
 import os
-import shutil
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from contextlib import contextmanager
 
-MEDIA_DIR = Path(os.getenv("MEDIA_DIR", "/tmp/tikdownload-media"))
-S3_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", os.getenv("S3_BUCKET", "")).strip()
-S3_ENDPOINT_URL = os.getenv("SUPABASE_S3_ENDPOINT_URL", os.getenv("S3_ENDPOINT_URL", "")).strip()
-S3_REGION = os.getenv("SUPABASE_S3_REGION", os.getenv("S3_REGION", "auto")).strip()
-S3_ACCESS_KEY_ID = os.getenv("SUPABASE_S3_ACCESS_KEY_ID", os.getenv("S3_ACCESS_KEY_ID", "")).strip()
-S3_SECRET_ACCESS_KEY = os.getenv("SUPABASE_S3_SECRET_ACCESS_KEY", os.getenv("S3_SECRET_ACCESS_KEY", "")).strip()
-S3_ENABLED = bool(S3_BUCKET and S3_ENDPOINT_URL and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY)
+BLOB_ACCESS = os.getenv("BLOB_ACCESS", "public").strip().lower()
+if BLOB_ACCESS not in {"public", "private"}:
+    raise RuntimeError("BLOB_ACCESS must be public or private.")
 
-def _client():
-    import boto3
-    from botocore.config import Config
-    return boto3.client("s3", endpoint_url=S3_ENDPOINT_URL, region_name=S3_REGION,
-        aws_access_key_id=S3_ACCESS_KEY_ID, aws_secret_access_key=S3_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}))
+def _blob():
+    try:
+        from vercel.blob import sync as blob
+    except ImportError as exc:
+        raise RuntimeError("Install the vercel-blob package to use Vercel Blob storage.") from exc
+    has_static_token = bool(os.getenv("BLOB_READ_WRITE_TOKEN") or os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN"))
+    has_oidc_credentials = bool(os.getenv("VERCEL_OIDC_TOKEN") and os.getenv("BLOB_STORE_ID"))
+    if not (has_static_token or has_oidc_credentials):
+        raise RuntimeError("Vercel Blob credentials are missing. Configure BLOB_READ_WRITE_TOKEN, or both VERCEL_OIDC_TOKEN and BLOB_STORE_ID.")
+    return blob
+
+def require_external_storage():
+    _blob()
 
 def _guess_content_type(path):
     ext = Path(path).suffix.lower()
-    return {".mp4":"video/mp4",".webm":"video/webm",".mov":"video/quicktime"}.get(ext,"application/octet-stream")
+    return {".mp4":"video/mp4", ".webm":"video/webm", ".mov":"video/quicktime"}.get(ext, "application/octet-stream")
 
 def store_file(source, key):
     source = Path(source)
-    if S3_ENABLED:
-        _client().upload_file(str(source), S3_BUCKET, key, ExtraArgs={"ContentType": _guess_content_type(source)})
-        return f"s3://{S3_BUCKET}/{key}"
-    destination = MEDIA_DIR / key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    return str(destination)
-
-def localize(stored_path, destination):
-    destination = Path(destination)
-    if stored_path.startswith("s3://"):
-        parsed = urlparse(stored_path)
-        _client().download_file(parsed.netloc, parsed.path.lstrip("/"), str(destination))
-    else:
-        shutil.copyfile(stored_path, destination)
-    return destination
+    with source.open("rb") as stream:
+        result = _blob().put_blob(key, stream, access=BLOB_ACCESS, content_type=_guess_content_type(source), content_length=source.stat().st_size, add_random_suffix=True)
+    return result.url
 
 def delete_file(stored_path):
-    if stored_path.startswith("s3://"):
-        parsed = urlparse(stored_path)
-        _client().delete_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
-    else:
-        Path(stored_path).unlink(missing_ok=True)
+    if not stored_path.startswith("https://"):
+        raise RuntimeError("Invalid Vercel Blob URL.")
+    _blob().delete_blob(stored_path)
 
 def exists(stored_path):
-    if stored_path.startswith("s3://"):
-        parsed = urlparse(stored_path)
-        try:
-            _client().head_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
-            return True
-        except Exception:
-            return False
-    return Path(stored_path).exists()
+    try:
+        return bool(_blob().head_blob(stored_path).size is not None)
+    except Exception:
+        return False
+
+@contextmanager
+def stream_file(stored_path):
+    if not stored_path.startswith("https://"):
+        raise RuntimeError("Invalid Vercel Blob URL.")
+    with _blob().stream_blob(stored_path, access=BLOB_ACCESS) as stream:
+        yield stream
 
 def temporary_path(suffix=".mp4"):
     fd, name = tempfile.mkstemp(suffix=suffix)
@@ -65,18 +56,14 @@ def temporary_path(suffix=".mp4"):
     Path(name).unlink(missing_ok=True)
     return Path(name)
 
+def localize(stored_path, destination):
+    """Legacy processing adapter; local processing remains disabled on Vercel."""
+    destination = Path(destination)
+    with stream_file(stored_path) as stream, destination.open("wb") as output:
+        for chunk in stream:
+            output.write(chunk)
+    return destination
 
 def presigned_download_url(stored_path, filename, expires_seconds=3600):
-    """Return a short-lived direct download URL for S3-compatible storage."""
-    if not S3_ENABLED or not stored_path.startswith("s3://"):
-        return None
-    parsed = urlparse(stored_path)
-    return _client().generate_presigned_url(
-        "get_object",
-        Params={
-            "Bucket": parsed.netloc,
-            "Key": parsed.path.lstrip("/"),
-            "ResponseContentDisposition": f'attachment; filename="{Path(filename).name}"',
-        },
-        ExpiresIn=max(60, min(int(expires_seconds), 3600)),
-    )
+    # Do not expose the underlying Blob URL. The API's random-id route enforces expiry.
+    return None

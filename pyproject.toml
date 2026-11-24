@@ -1,1 +1,3 @@
-# Vercel detects the FastAPI app from api/index.py
+[tool.vercel]
+# Explicitly tell Vercel where the FastAPI application is located.
+entrypoint = "backend.app.main:app"

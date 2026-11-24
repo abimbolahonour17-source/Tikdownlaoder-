@@ -9,25 +9,42 @@ import ipaddress
 from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import urlparse
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from . import persistence, storage
 
 APP_VERSION = "0.2.3"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
+
+def is_tiktok_host(host: str) -> bool:
+    """Allow TikTok itself and genuine TikTok subdomains, not suffix spoofing."""
+    host = (host or "").lower().rstrip(".")
+    return host == "tiktok.com" or host.endswith(".tiktok.com")
 RATE_WINDOW_SECONDS = int(os.getenv("RATE_WINDOW_SECONDS", "60"))
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "80"))
 MEDIA_TTL_SECONDS = int(os.getenv("MEDIA_TTL_SECONDS", "3600"))
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", "/tmp/tikdownload-media"))
 request_times: dict[str, deque[float]] = defaultdict(deque)
-media_records: dict[str, dict] = {record['id']: record for record in persistence.list_media()}
+media_records: dict[str, dict] = {}
 processing_jobs: dict[str, dict] = {}
 
-app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION)
+@asynccontextmanager
+async def lifespan(_app):
+    # Database initialization should not prevent serverless cold starts.
+    try:
+        persistence.initialize()
+        media_records.update({record["id"]: record for record in persistence.list_media()})
+    except Exception:
+        pass
+    yield
+
+
+app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION, lifespan=lifespan)
 allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5500").split(",")
 app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in allowed_origins if origin.strip()], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 
@@ -51,12 +68,11 @@ def validate_tiktok_url(value: str) -> str | None:
             raw = "https://" + raw
         parsed = urlparse(raw)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme not in {"https", "http"} or host not in ALLOWED_HOSTS:
+        if parsed.scheme != "https" or not is_tiktok_host(host):
             return None
         if parsed.username or parsed.password or not parsed.path or parsed.path == "/":
             return None
-        # TikTok share links are sometimes copied with plain HTTP; always use HTTPS.
-        return parsed._replace(scheme="https", fragment="").geturl()
+        return parsed._replace(fragment="").geturl()
     except (ValueError, TypeError):
         return None
 
@@ -94,6 +110,7 @@ def health():
     database = "ok"
     queue = "local-thread"
     try:
+        persistence.initialize()
         with persistence.connect() as db:
             db.execute("SELECT 1")
     except Exception:
@@ -212,7 +229,7 @@ def download_video(body: LinkRequest):
             record = {"id": media_id, "path": stored_path, "filename": filename, "size": size, "content_type": content_type, "expires_at": expires}
             media_records[media_id] = record
             persistence.save_media(media_id, record)
-            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": storage.presigned_download_url(stored_path, filename, MEDIA_TTL_SECONDS) or f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
+            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
     except HTTPException:
         raise
     except Exception as error:
@@ -399,7 +416,14 @@ def download_uploaded_video(media_id: str):
     if not storage.exists(record["path"]):
         media_records.pop(media_id, None)
         raise HTTPException(status_code=404, detail="File not found.")
-    from starlette.background import BackgroundTask
-    temporary = storage.temporary_path(Path(record["filename"]).suffix)
-    storage.localize(record["path"], temporary)
-    return FileResponse(temporary, media_type=record["content_type"], filename=record["filename"], headers={"Cache-Control": "no-store"}, background=BackgroundTask(temporary.unlink, missing_ok=True))
+    def blob_chunks():
+        with storage.stream_file(record["path"]) as stream:
+            for chunk in stream:
+                yield chunk
+    safe_filename = Path(record["filename"]).name.replace('"', "")
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe_filename}"',
+        "Cache-Control": "no-store, private",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return StreamingResponse(blob_chunks(), media_type=record["content_type"], headers=headers)
