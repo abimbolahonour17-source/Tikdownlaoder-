@@ -1,4 +1,5 @@
 from io import BytesIO
+import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -147,3 +148,23 @@ def test_provider_media_url_rejects_private_addresses(monkeypatch):
 def test_provider_media_url_requires_https():
     import app.main as main
     assert main._is_public_https_media_url("http://example.com/video.mp4") is False
+
+@pytest.mark.parametrize("url", [
+    "https://www.tiktok.com/@creator/video/123",
+    "https://m.tiktok.com/@creator/video/123",
+    "https://vm.tiktok.com/abc123/",
+    "https://vt.tiktok.com/abc123/",
+    "https://www.tiktok.com/share/video/123",
+    "https://creator.tiktok.com/some/video/123",
+    "www.tiktok.com/@creator/video/123",
+    "tiktok.com/@creator/video/123",
+])
+def test_accepts_tiktok_video_link_formats(url):
+    import app.main as main
+    assert main.validate_tiktok_url(url) is not None
+
+
+def test_rejects_tiktok_domain_suffix_spoofing():
+    import app.main as main
+    assert main.validate_tiktok_url("https://tiktok.com.evil.example/video") is None
+    assert main.validate_tiktok_url("https://not-tiktok.com/video") is None
