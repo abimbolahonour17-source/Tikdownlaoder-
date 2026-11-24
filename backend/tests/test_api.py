@@ -38,6 +38,8 @@ def test_tiktok_download_uses_getinsaver_provider(monkeypatch, tmp_path):
     monkeypatch.setattr(main.storage, "MEDIA_DIR", tmp_path)
     video_bytes = b"fake-provider-video"
     class ProviderResponse:
+        is_success = True
+        status_code = 200
         def raise_for_status(self): pass
         def json(self):
             return {"ok": True, "items": [{"type": "video", "url": "https://cdn.example/video.mp4"}]}
