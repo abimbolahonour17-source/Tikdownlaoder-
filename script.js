@@ -80,7 +80,9 @@ function normalizeTikTokUrl(value) {
   try {
     const trimmed = value.trim();
     if (!trimmed) return null;
-    const parsed = new URL(/^(https?:)?\\/\\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    const candidate = trimmed.startsWith("https://") || trimmed.startsWith("http://") || trimmed.startsWith("//")
+      ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(candidate.startsWith("//") ? `https:${candidate}` : candidate);
     const host = parsed.hostname.toLowerCase().replace(/\\.$/, "");
     const isTikTokHost = host === "tiktok.com" || host.endsWith(".tiktok.com");
     if (parsed.protocol !== "https:" || !isTikTokHost || parsed.username || parsed.password || parsed.pathname === "/") return null;
