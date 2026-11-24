@@ -19,6 +19,11 @@ from . import persistence, storage
 
 APP_VERSION = "0.2.3"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
+
+def is_tiktok_host(host: str) -> bool:
+    """Allow TikTok itself and genuine TikTok subdomains, not suffix spoofing."""
+    host = (host or "").lower().rstrip(".")
+    return host == "tiktok.com" or host.endswith(".tiktok.com")
 RATE_WINDOW_SECONDS = int(os.getenv("RATE_WINDOW_SECONDS", "60"))
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "80"))
@@ -63,7 +68,7 @@ def validate_tiktok_url(value: str) -> str | None:
             raw = "https://" + raw
         parsed = urlparse(raw)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme != "https" or host not in ALLOWED_HOSTS:
+        if parsed.scheme != "https" or not is_tiktok_host(host):
             return None
         if parsed.username or parsed.password or not parsed.path or parsed.path == "/":
             return None
