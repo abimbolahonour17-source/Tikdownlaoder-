@@ -118,7 +118,8 @@ form.addEventListener("submit", async (event) => {
     input.focus();
     return;
   }
-  const normalizedUrl = normalizeTikTokUrl(value);\n  if (!normalizedUrl) {
+  const normalizedUrl = normalizeTikTokUrl(value);
+  if (!normalizedUrl) {
     showStatus("Please enter a valid HTTPS TikTok video link.", "error");
     input.focus();
     return;
