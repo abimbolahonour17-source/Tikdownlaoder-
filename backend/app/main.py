@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from . import persistence, storage
 
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
 RATE_WINDOW_SECONDS = int(os.getenv("RATE_WINDOW_SECONDS", "60"))
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))
@@ -40,12 +40,23 @@ class LinkValidation(BaseModel):
     message: str
 
 def validate_tiktok_url(value: str) -> str | None:
+    """Accept TikTok video, mobile, and share/short-link URL formats."""
     try:
-        parsed = urlparse(value.strip())
-        host = (parsed.hostname or "").lower()
-        if parsed.scheme != "https" or host not in ALLOWED_HOSTS or not parsed.path or parsed.path == "/":
+        raw = value.strip()
+        if not raw:
             return None
-        return parsed.geturl()
+        if raw.startswith("//"):
+            raw = "https:" + raw
+        elif raw.startswith(("www.tiktok.com/", "m.tiktok.com/", "vm.tiktok.com/", "vt.tiktok.com/", "tiktok.com/")):
+            raw = "https://" + raw
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if parsed.scheme not in {"https", "http"} or host not in ALLOWED_HOSTS:
+            return None
+        if parsed.username or parsed.password or not parsed.path or parsed.path == "/":
+            return None
+        # TikTok share links are sometimes copied with plain HTTP; always use HTTPS.
+        return parsed._replace(scheme="https", fragment="").geturl()
     except (ValueError, TypeError):
         return None
 
@@ -116,6 +127,37 @@ def _is_public_https_media_url(value: str) -> bool:
     except (ValueError, OSError):
         return False
 
+def expand_tiktok_share_url(value: str, client) -> str:
+    """Follow TikTok-only share redirects, validating every hop to prevent SSRF."""
+    current = value
+    for _ in range(6):
+        parsed = urlparse(current)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if parsed.scheme != "https" or host not in ALLOWED_HOSTS or not _is_public_https_media_url(current):
+            raise HTTPException(status_code=400, detail="That does not look like a safe TikTok video link.")
+        try:
+            with client.stream("GET", current, headers={"User-Agent": "Mozilla/5.0 TikDownload/1.0", "Accept": "text/html,*/*"} ) as response:
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+                    from urllib.parse import urljoin
+                    next_url = urljoin(current, location)
+                    checked = validate_tiktok_url(next_url)
+                    if not checked:
+                        raise HTTPException(status_code=400, detail="TikTok share link redirected outside TikTok.")
+                    current = checked
+                    continue
+                if response.status_code < 400:
+                    return current
+                break
+        except HTTPException:
+            raise
+        except Exception:
+            break
+    return current
+
+
 @app.post("/api/v1/download")
 def download_video(body: LinkRequest):
     normalized = validate_tiktok_url(body.url)
@@ -129,6 +171,7 @@ def download_video(body: LinkRequest):
     temp_download = None
     try:
         with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0), follow_redirects=False) as client:
+            normalized = expand_tiktok_share_url(normalized, client)
             provider_response = client.post(provider_url, json={"service": "tiktok", "url": normalized, "max_results": 1}, headers={"Authorization": f"Bearer {provider_token}", "Accept": "application/json"})
             provider_response.raise_for_status()
             provider_data = provider_response.json()
