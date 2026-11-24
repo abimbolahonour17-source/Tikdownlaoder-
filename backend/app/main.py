@@ -9,6 +9,7 @@ import ipaddress
 from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import urlparse
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,18 @@ request_times: dict[str, deque[float]] = defaultdict(deque)
 media_records: dict[str, dict] = {}
 processing_jobs: dict[str, dict] = {}
 
-app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION)
+@asynccontextmanager
+async def lifespan(_app):
+    # Database initialization should not prevent serverless cold starts.
+    try:
+        persistence.initialize()
+        media_records.update({record["id"]: record for record in persistence.list_media()})
+    except Exception:
+        pass
+    yield
+
+
+app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION, lifespan=lifespan)
 allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5500").split(",")
 app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in allowed_origins if origin.strip()], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 
@@ -51,12 +63,11 @@ def validate_tiktok_url(value: str) -> str | None:
             raw = "https://" + raw
         parsed = urlparse(raw)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme not in {"https", "http"} or host not in ALLOWED_HOSTS:
+        if parsed.scheme != "https" or host not in ALLOWED_HOSTS:
             return None
         if parsed.username or parsed.password or not parsed.path or parsed.path == "/":
             return None
-        # TikTok share links are sometimes copied with plain HTTP; always use HTTPS.
-        return parsed._replace(scheme="https", fragment="").geturl()
+        return parsed._replace(fragment="").geturl()
     except (ValueError, TypeError):
         return None
 
@@ -88,16 +99,6 @@ async def basic_rate_limit(request: Request, call_next):
 async def _rate_limited_response():
     from fastapi.responses import JSONResponse
     return JSONResponse(status_code=429, content={"detail": "Too many requests. Please try again shortly."})
-
-@app.on_event("startup")
-def initialize_database_on_startup():
-    # Do not let a database outage prevent the API from importing or starting.
-    try:
-        persistence.initialize()
-        media_records.update({record["id"]: record for record in persistence.list_media()})
-    except Exception:
-        pass
-
 
 @app.get("/health")
 def health():
