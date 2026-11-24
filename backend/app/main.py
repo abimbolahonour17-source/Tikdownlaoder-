@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from . import persistence, storage
 
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.3"
 ALLOWED_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
 RATE_WINDOW_SECONDS = int(os.getenv("RATE_WINDOW_SECONDS", "60"))
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))
@@ -170,16 +170,27 @@ def download_video(body: LinkRequest):
     import httpx
     temp_download = None
     try:
-        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0), follow_redirects=False) as client:
-            normalized = expand_tiktok_share_url(normalized, client)
+        # GetInSaver documents direct support for vm/vt short links; do not rewrite them.
+        with httpx.Client(timeout=httpx.Timeout(130.0, connect=15.0), follow_redirects=False) as client:
             provider_response = client.post(provider_url, json={"service": "tiktok", "url": normalized, "max_results": 1}, headers={"Authorization": f"Bearer {provider_token}", "Accept": "application/json"})
-            provider_response.raise_for_status()
-            provider_data = provider_response.json()
+            try:
+                provider_data = provider_response.json()
+            except ValueError:
+                provider_data = {}
+            if not provider_response.is_success:
+                code = provider_data.get("code", "PROVIDER_ERROR")
+                message = provider_data.get("message") or ("Provider returned HTTP " + str(provider_response.status_code))
+                raise HTTPException(status_code=502, detail=str(code) + ": " + str(message))
+            if provider_data.get("error"):
+                code = provider_data.get("code", "PROVIDER_ERROR")
+                message = provider_data.get("message", "Provider could not read this TikTok link.")
+                raise HTTPException(status_code=422, detail=str(code) + ": " + str(message))
             items = provider_data.get("items") if provider_data.get("ok") else None
             media_item = next((item for item in (items or []) if item.get("type") == "video" and isinstance(item.get("url"), str)), None)
             media_url = media_item.get("url") if media_item else None
             if not isinstance(media_url, str) or not _is_public_https_media_url(media_url):
-                raise HTTPException(status_code=502, detail="Provider returned no safe video media URL for this TikTok link.")
+                raise HTTPException(status_code=422, detail="No downloadable video returned; the post may be a photo post, private, deleted, or unsupported.")
+
             filename = "tiktok-video.mp4"
             media_id = uuid.uuid4().hex
             temp_download = storage.temporary_path(".mp4")
@@ -205,7 +216,7 @@ def download_video(body: LinkRequest):
     except HTTPException:
         raise
     except Exception as error:
-        raise HTTPException(status_code=502, detail="GetInSaver failed to resolve or retrieve the TikTok video. Please try again later.") from error
+        raise HTTPException(status_code=502, detail="Download service error: " + type(error).__name__ + ": " + str(error)[:300]) from error
     finally:
         if temp_download:
             temp_download.unlink(missing_ok=True)
