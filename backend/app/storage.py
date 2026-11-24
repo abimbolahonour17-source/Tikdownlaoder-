@@ -23,23 +23,24 @@ def _guess_content_type(path):
     ext = Path(path).suffix.lower()
     return {".mp4":"video/mp4",".webm":"video/webm",".mov":"video/quicktime"}.get(ext,"application/octet-stream")
 
+def require_external_storage():
+    if not S3_ENABLED:
+        raise RuntimeError("External S3-compatible storage is required. Configure Supabase Storage or S3 credentials.")
+
 def store_file(source, key):
+    require_external_storage()
     source = Path(source)
-    if S3_ENABLED:
-        _client().upload_file(str(source), S3_BUCKET, key, ExtraArgs={"ContentType": _guess_content_type(source)})
-        return f"s3://{S3_BUCKET}/{key}"
-    destination = MEDIA_DIR / key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    return str(destination)
+    _client().upload_file(str(source), S3_BUCKET, key, ExtraArgs={"ContentType": _guess_content_type(source)})
+    return f"s3://{S3_BUCKET}/{key}
 
 def localize(stored_path, destination):
+    require_external_storage()
     destination = Path(destination)
     if stored_path.startswith("s3://"):
         parsed = urlparse(stored_path)
         _client().download_file(parsed.netloc, parsed.path.lstrip("/"), str(destination))
     else:
-        shutil.copyfile(stored_path, destination)
+        raise RuntimeError("Local video storage is disabled.")
     return destination
 
 def delete_file(stored_path):
@@ -47,7 +48,7 @@ def delete_file(stored_path):
         parsed = urlparse(stored_path)
         _client().delete_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
     else:
-        Path(stored_path).unlink(missing_ok=True)
+        raise RuntimeError("Local video storage is disabled.")
 
 def exists(stored_path):
     if stored_path.startswith("s3://"):
@@ -57,7 +58,7 @@ def exists(stored_path):
             return True
         except Exception:
             return False
-    return Path(stored_path).exists()
+    return False
 
 def temporary_path(suffix=".mp4"):
     fd, name = tempfile.mkstemp(suffix=suffix)
@@ -68,7 +69,8 @@ def temporary_path(suffix=".mp4"):
 
 def presigned_download_url(stored_path, filename, expires_seconds=3600):
     """Return a short-lived direct download URL for S3-compatible storage."""
-    if not S3_ENABLED or not stored_path.startswith("s3://"):
+    require_external_storage()
+    if not stored_path.startswith("s3://"):
         return None
     parsed = urlparse(stored_path)
     return _client().generate_presigned_url(
