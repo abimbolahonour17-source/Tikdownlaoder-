@@ -24,7 +24,7 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "80"))
 MEDIA_TTL_SECONDS = int(os.getenv("MEDIA_TTL_SECONDS", "3600"))
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", "/tmp/tikdownload-media"))
 request_times: dict[str, deque[float]] = defaultdict(deque)
-media_records: dict[str, dict] = {record['id']: record for record in persistence.list_media()}
+media_records: dict[str, dict] = {}
 processing_jobs: dict[str, dict] = {}
 
 app = FastAPI(title="TikDownload API", description="TikDownload URL validation and authorized video-file upload/download API.", version=APP_VERSION)
@@ -89,11 +89,22 @@ async def _rate_limited_response():
     from fastapi.responses import JSONResponse
     return JSONResponse(status_code=429, content={"detail": "Too many requests. Please try again shortly."})
 
+@app.on_event("startup")
+def initialize_database_on_startup():
+    # Do not let a database outage prevent the API from importing or starting.
+    try:
+        persistence.initialize()
+        media_records.update({record["id"]: record for record in persistence.list_media()})
+    except Exception:
+        pass
+
+
 @app.get("/health")
 def health():
     database = "ok"
     queue = "local-thread"
     try:
+        persistence.initialize()
         with persistence.connect() as db:
             db.execute("SELECT 1")
     except Exception:
