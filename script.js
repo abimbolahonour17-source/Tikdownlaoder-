@@ -76,13 +76,18 @@ async function pollProcessingJob(jobId) {
   throw new Error("Processing status timed out. Check again later.");
 }
 
-function isTikTokUrl(value) {
+function normalizeTikTokUrl(value) {
   try {
-    const parsed = new URL(value);
-    const allowedHosts = ["tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"];
-    return parsed.protocol === "https:" && allowedHosts.includes(parsed.hostname.toLowerCase()) && parsed.pathname.length > 1;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = new URL(/^(https?:)?\\/\\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    const host = parsed.hostname.toLowerCase().replace(/\\.$/, "");
+    const isTikTokHost = host === "tiktok.com" || host.endsWith(".tiktok.com");
+    if (parsed.protocol !== "https:" || !isTikTokHost || parsed.username || parsed.password || parsed.pathname === "/") return null;
+    parsed.hash = "";
+    return parsed.href;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -111,7 +116,7 @@ form.addEventListener("submit", async (event) => {
     input.focus();
     return;
   }
-  if (!isTikTokUrl(value)) {
+  const normalizedUrl = normalizeTikTokUrl(value);\n  if (!normalizedUrl) {
     showStatus("Please enter a valid HTTPS TikTok video link.", "error");
     input.focus();
     return;
@@ -123,7 +128,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch(`${API_BASE}/api/v1/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: value }),
+      body: JSON.stringify({ url: normalizedUrl }),
     });
     const result = await response.json();
     if (!response.ok) {
