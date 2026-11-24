@@ -13,8 +13,10 @@ def _blob():
         from vercel.blob import sync as blob
     except ImportError as exc:
         raise RuntimeError("Install the vercel-blob package to use Vercel Blob storage.") from exc
-    if not (os.getenv("BLOB_READ_WRITE_TOKEN") or os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN") or os.getenv("VERCEL_OIDC_TOKEN")):
-        raise RuntimeError("Vercel Blob credentials are missing. Configure BLOB_READ_WRITE_TOKEN.")
+    has_static_token = bool(os.getenv("BLOB_READ_WRITE_TOKEN") or os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN"))
+    has_oidc_credentials = bool(os.getenv("VERCEL_OIDC_TOKEN") and os.getenv("BLOB_STORE_ID"))
+    if not (has_static_token or has_oidc_credentials):
+        raise RuntimeError("Vercel Blob credentials are missing. Configure BLOB_READ_WRITE_TOKEN, or both VERCEL_OIDC_TOKEN and BLOB_STORE_ID.")
     return blob
 
 def require_external_storage():
