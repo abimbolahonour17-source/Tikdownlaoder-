@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from . import persistence, storage
 
@@ -229,7 +229,7 @@ def download_video(body: LinkRequest):
             record = {"id": media_id, "path": stored_path, "filename": filename, "size": size, "content_type": content_type, "expires_at": expires}
             media_records[media_id] = record
             persistence.save_media(media_id, record)
-            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": storage.presigned_download_url(stored_path, filename, MEDIA_TTL_SECONDS) or f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
+            return {"id": media_id, "filename": filename, "size_bytes": size, "status": "ready", "download_url": f"/api/v1/media/{media_id}/download", "expires_in_seconds": MEDIA_TTL_SECONDS, "message": "Video retrieved from GetInSaver and stored in TikDownload."}
     except HTTPException:
         raise
     except Exception as error:
@@ -416,7 +416,14 @@ def download_uploaded_video(media_id: str):
     if not storage.exists(record["path"]):
         media_records.pop(media_id, None)
         raise HTTPException(status_code=404, detail="File not found.")
-    from starlette.background import BackgroundTask
-    temporary = storage.temporary_path(Path(record["filename"]).suffix)
-    storage.localize(record["path"], temporary)
-    return FileResponse(temporary, media_type=record["content_type"], filename=record["filename"], headers={"Cache-Control": "no-store"}, background=BackgroundTask(temporary.unlink, missing_ok=True))
+    def blob_chunks():
+        with storage.stream_file(record["path"]) as stream:
+            for chunk in stream:
+                yield chunk
+    safe_filename = Path(record["filename"]).name.replace('"', "")
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe_filename}"',
+        "Cache-Control": "no-store, private",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return StreamingResponse(blob_chunks(), media_type=record["content_type"], headers=headers)
